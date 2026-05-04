@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: 
+      context: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
+      - huggingface_cache:/root/.cache/huggingface
+
+  frontend:
+    build: 
+      context: ./frontend
+    ports:
+      # On mappe le port 5175 de ta machine vers le 5173 du conteneur
+      - "5175:5173"
+    depends_on:
+      - backend
+
+volumes:
+  huggingface_cache:
