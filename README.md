@@ -26,7 +26,7 @@ Voici la procédure complète pour récupérer, construire et lancer ce projet s
 ### 1. Cloner le projet
 Ouvrez votre terminal, téléchargez le code source depuis GitHub et placez-vous dans le dossier du projet :
 ```bash
-git clone [https://github.com/VOTRE_NOM_D_UTILISATEUR/smartlabel-mini.git](https://github.com/VOTRE_NOM_D_UTILISATEUR/smartlabel-mini.git)
+git clone [https://github.com/VOTRE_NOM_D_UTILISATEUR/smartlabel-mini.git](https://github.com/Ramcy-cloud/smartlabel-mini.git)
 cd smartlabel-mini
 ```
 
@@ -60,4 +60,4 @@ docker compose down -v
 ```
 
 ---
-*Projet développé par Ramcy Said FOM.*
+*Projet développé par Ramcy-cloud.*
