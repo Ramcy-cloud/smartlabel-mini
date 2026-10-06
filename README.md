@@ -169,6 +169,26 @@ npm run dev
 
 L'interface est alors disponible sur **http://localhost:5173**.
 
+### Configuration : origines autorisées (CORS)
+
+Par sécurité, le navigateur n'autorise une page web à interroger l'API que si l'adresse de cette page figure dans la liste des **origines autorisées**. Cette liste se règle avec la variable d'environnement `ALLOWED_ORIGINS` : des adresses séparées par des virgules, les espaces sont ignorés.
+
+- **Valeur par défaut** (variable absente) : `http://localhost:5175,http://localhost:5173`, c'est-à-dire l'interface lancée avec Docker et celle lancée avec `npm run dev`. Le fonctionnement local ne change donc pas.
+- **Exemple pour un déploiement** : `ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com`
+- `*` (« tout le monde ») est **refusé** : le backend ne démarre pas si cette valeur est présente.
+- Avec Docker, `docker-compose.yml` transmet la variable au backend ; vous pouvez la définir dans un fichier `.env` placé à la racine (voir `.env.example`). Sans Docker, définissez-la avant `uvicorn`, par exemple `ALLOWED_ORIGINS=https://app.example.com uvicorn app.main:app` (Linux/macOS).
+- Seules les méthodes `GET` et `POST` et l'en-tête `Content-Type` sont autorisés, sans cookies ni identifiants.
+
+### Tests du backend
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Les tests vérifient la configuration CORS. Le vrai modèle d'IA n'est pas chargé : il est remplacé par un faux.
+
 ### Structure du projet
 
 ```
@@ -176,8 +196,10 @@ smartlabel-mini/
 ├── backend/
 │   ├── Dockerfile
 │   ├── requirements.txt
+│   ├── requirements-dev.txt      # Dépendances de test (pytest)
+│   ├── tests/                    # Tests (CORS)
 │   └── app/
-│       ├── main.py               # Application FastAPI, CORS, préfixe /api
+│       ├── main.py               # Application FastAPI, CORS (ALLOWED_ORIGINS), préfixe /api
 │       ├── api/routes.py         # Route POST /predict
 │       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
 │       └── services/ai_service.py # Chargement du modèle et prédiction
@@ -193,6 +215,7 @@ smartlabel-mini/
 │       ├── services/api.js       # Appel à l'API
 │       └── *.css                 # Styles
 ├── docker-compose.yml
+├── .env.example                  # Variables d'environnement (ALLOWED_ORIGINS)
 ├── image_99b8db.png              # Capture d'écran
 └── README.md
 ```
@@ -200,7 +223,6 @@ smartlabel-mini/
 ### Limites connues
 
 - L'écran de connexion n'effectue aucune vérification (maquette).
-- CORS est ouvert à toutes les origines (`allow_origins=["*"]`) : à restreindre avant toute mise en production.
 - Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
 
 ---
