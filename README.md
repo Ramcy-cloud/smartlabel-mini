@@ -1,63 +1,208 @@
-# 🧠 SmartLabel-Mini : Classification Zéro-Shot Multilingue
+# SmartLabel-Mini — trier automatiquement un texte dans les catégories de votre choix
+
+Ce projet sert à **ranger un texte dans une catégorie que vous choisissez vous-même** (par exemple « joie », « colère », « tristesse », « neutre »), grâce à une intelligence artificielle, sans avoir à lui apprendre ces catégories au préalable.
 
 ![Démonstration de SmartLabel-Mini](./image_99b8db.png)
 
-## 🎯 Utilité du projet
-SmartLabel-Mini est une application Fullstack conçue pour la classification dynamique de textes à l'aide de l'Intelligence Artificielle (NLP). 
+---
 
-Contrairement aux modèles traditionnels qui nécessitent un long entraînement spécifique pour chaque nouvelle catégorie, cet outil utilise une approche **Zero-Shot**. Il permet de catégoriser n'importe quel texte selon des labels définis "à la volée" par l'utilisateur. 
+## À quoi ça sert
 
-Cette flexibilité rend l'application immédiatement opérationnelle pour des cas d'usage variés tels que :
-*   L'analyse de sentiments en temps réel.
-*   Le routage et la catégorisation automatique de tickets de support client.
-*   Le tri thématique de documents ou de flux de données.
+Trier des textes à la main prend du temps : lire chaque message client, chaque avis ou chaque document, puis décider dans quelle « case » il va.
 
-## 🏗️ Architecture Technique
-L'application repose sur une architecture micro-services, séparant les responsabilités et entièrement conteneurisée :
-*   **Frontend :** React.js (Vite) pour une interface utilisateur réactive.
-*   **Backend :** FastAPI (Python) assurant un traitement asynchrone et performant des requêtes.
-*   **Intelligence Artificielle :** Modèle `xlm-roberta-large-xnli` via la bibliothèque Transformers (Hugging Face), capable de traiter nativement de multiples langues (dont le français et l'anglais).
-*   **DevOps :** Docker & Docker Compose pour garantir un environnement d'exécution standardisé, reproductible et un déploiement simplifié.
+SmartLabel-Mini fait ce tri à votre place. Vous lui donnez :
 
-## 🚀 Lancement du projet (De A à Z)
+1. un **texte**, par exemple : « Je n'en reviens pas, l'attente était interminable et la commande est arrivée complètement abîmée. C'est inacceptable. » ;
+2. une **liste de catégories** possibles, séparées par des virgules, par exemple : `joie, colère, tristesse, neutre`.
 
-Voici la procédure complète pour récupérer, construire et lancer ce projet sur votre propre machine. Assurez-vous d'avoir [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et démarré.
+L'application répond avec **la catégorie la plus probable** et un **niveau de confiance** (un pourcentage qui indique à quel point l'IA est sûre de son choix).
 
-### 1. Cloner le projet
-Ouvrez votre terminal, téléchargez le code source depuis GitHub et placez-vous dans le dossier du projet :
+Le point fort : **vous pouvez changer les catégories à tout moment**. Aujourd'hui des émotions, demain `livraison, facturation, panne technique` pour trier des demandes au service client. Il n'y a rien à reprogrammer.
+
+Exemples d'usages possibles :
+
+- repérer l'émotion ou l'humeur d'un message (satisfait, en colère, neutre…) ;
+- orienter automatiquement des demandes de support client vers le bon service ;
+- classer des documents ou des messages par thème.
+
+---
+
+## Comment ça marche
+
+### L'idée : la classification « zero-shot »
+
+D'habitude, pour qu'une IA range des textes dans des catégories, il faut d'abord l'**entraîner** : lui montrer des milliers d'exemples déjà triés pour chaque catégorie. Si on ajoute une catégorie, il faut recommencer.
+
+La méthode utilisée ici s'appelle **zero-shot** (« zéro exemple ») : l'IA n'a besoin d'**aucun exemple** pour vos catégories. Elle a déjà appris, de façon générale, à juger si une phrase « va avec » une autre. Pour chaque catégorie proposée, elle se demande en quelque sorte : « Ce texte parle-t-il de *colère* ? de *joie* ? … », puis garde la catégorie qui convient le mieux.
+
+C'est comme demander à quelqu'un qui maîtrise bien la langue de ranger des lettres dans des boîtes étiquetées : il n'a pas besoin de formation spéciale, il lit l'étiquette et le contenu, et décide.
+
+### Les étapes
+
+1. Vous saisissez le texte et les catégories dans la page web.
+2. La page envoie ces informations au **serveur** (le programme qui tourne en arrière-plan).
+3. Le serveur les transmet à un **modèle d'IA** : un programme qui a « appris » à comprendre le langage en lisant une très grande quantité de textes. Celui utilisé ici, `joeddav/xlm-roberta-large-xnli`, est **multilingue** : il comprend notamment le français et l'anglais.
+4. Le modèle attribue un score à chaque catégorie. Le serveur renvoie la meilleure catégorie et son score.
+5. La page affiche le résultat.
+
+Le modèle tourne **sur votre propre machine**. Il est téléchargé une fois depuis **Hugging Face** (une plateforme qui partage des modèles d'IA) au premier lancement, puis gardé en mémoire pour les fois suivantes. Le texte analysé n'est envoyé à aucun service extérieur.
+
+---
+
+## Résultat / ce qu'on obtient
+
+Une page web, ouverte dans votre navigateur, avec :
+
+- un écran de connexion (voir la remarque ci-dessous) ;
+- une zone pour coller le **texte à analyser** ;
+- un champ pour écrire les **catégories candidates**, séparées par des virgules (par défaut : `joie, colère, tristesse, neutre`) ;
+- un bouton **« Soumettre à l'IA »** ;
+- un encadré **« Résultat de la prédiction »** qui affiche la catégorie retenue et le niveau de confiance. Sur la capture d'écran ci-dessus, le message de client mécontent est classé dans la catégorie `TRISTESSE`, avec un niveau de confiance de 79,80 %.
+
+> **Remarque sur l'écran de connexion** : il s'agit pour l'instant d'une **maquette**. Aucun identifiant n'est vérifié (cliquer sur « Sign In » suffit pour entrer) et le formulaire d'inscription n'enregistre rien. Les icônes Facebook, X et LinkedIn mènent vers des pages d'attente.
+
+---
+
+## Pour les développeurs
+
+### Architecture
+
+L'application est composée de deux services, conteneurisés avec Docker :
+
+- **Frontend** : React 19 + Vite, avec la bibliothèque de composants Ant Design. L'API est appelée via `axios`.
+- **Backend** : FastAPI (Python), servi par Uvicorn.
+- **Modèle d'IA** : `joeddav/xlm-roberta-large-xnli`, chargé avec le `pipeline("zero-shot-classification")` de la bibliothèque Transformers (Hugging Face) et exécuté avec PyTorch. Le modèle est chargé une seule fois au démarrage du backend.
+- **Docker / Docker Compose** : un environnement d'exécution identique sur toutes les machines. Un volume Docker (`huggingface_cache`) conserve le modèle téléchargé entre deux démarrages.
+
+### API
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| `POST` | `/api/predict` | Classe un texte parmi les catégories fournies |
+
+Exemple de requête :
+
+```json
+{
+  "text": "Le client est vraiment furieux à cause du retard de livraison.",
+  "candidate_labels": ["joie", "colère", "tristesse", "neutre"]
+}
+```
+
+Format de la réponse :
+
+```json
+{
+  "text": "…",
+  "predicted_label": "…",
+  "confidence_score": 0.0
+}
+```
+
+`confidence_score` est le score de la catégorie retenue, entre 0 et 1, arrondi à 4 décimales. La documentation interactive de l'API (générée par FastAPI) est disponible sur **http://localhost:8000/docs**.
+
+### Lancement avec Docker (recommandé)
+
+Prérequis : [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et démarré.
+
+#### 1. Cloner le projet
+
 ```bash
-git clone [https://github.com/VOTRE_NOM_D_UTILISATEUR/smartlabel-mini.git](https://github.com/Ramcy-cloud/smartlabel-mini.git)
+git clone https://github.com/Ramcy-cloud/smartlabel-mini.git
 cd smartlabel-mini
 ```
 
-### 2. Démarrer l'application avec Docker
-Lancez la construction et le démarrage des conteneurs en mode détaché (en arrière-plan) avec la commande suivante :
+#### 2. Construire et démarrer les conteneurs
+
+En arrière-plan (mode « détaché ») :
+
 ```bash
 docker compose up -d --build
 ```
-*(Note : Le tout premier lancement prendra quelques minutes afin de télécharger les environnements de base et de charger le modèle d'IA dans le cache).*
 
-### 3. Accéder à l'interface
-Une fois le démarrage terminé, ouvrez votre navigateur web et rendez-vous à l'adresse locale suivante :
-👉 **http://localhost:5175/**
+Le premier lancement prend plusieurs minutes : Docker télécharge les images de base et les dépendances, puis le backend télécharge le modèle d'IA.
 
-### 4. Commandes de gestion utiles
-Si vous souhaitez interagir avec les conteneurs en cours d'exécution, voici les commandes essentielles :
+#### 3. Ouvrir l'interface
 
-*   **Surveiller les journaux (logs) en temps réel :** 
+- Interface : **http://localhost:5175/** (le port 5175 de la machine est relié au port 5173 du conteneur)
+- API : **http://localhost:8000**
+
+Le frontend appelle l'API à l'adresse `http://127.0.0.1:8000/api` (définie dans `frontend/src/services/api.js`).
+
+#### 4. Commandes utiles
+
+- Suivre les journaux (logs) en temps réel :
+
+  ```bash
+  docker compose logs -f
+  ```
+
+- Arrêter l'application :
+
+  ```bash
+  docker compose down
+  ```
+
+- Arrêter l'application et supprimer le cache du modèle d'IA (il sera retéléchargé au prochain lancement) :
+
+  ```bash
+  docker compose down -v
+  ```
+
+### Lancement sans Docker
+
+Backend (Python 3.10 ou plus récent ; l'image Docker utilise Python 3.10) :
+
 ```bash
-docker compose logs -f
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-*   **Arrêter l'application proprement :** 
+Frontend (Node.js et npm) :
+
 ```bash
-docker compose down
+cd frontend
+npm install
+npm run dev
 ```
 
-*   **Arrêter l'application et vider le cache du modèle IA :** 
-```bash
-docker compose down -v
+L'interface est alors disponible sur **http://localhost:5173**.
+
+### Structure du projet
+
 ```
+smartlabel-mini/
+├── backend/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py               # Application FastAPI, CORS, préfixe /api
+│       ├── api/routes.py         # Route POST /predict
+│       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
+│       └── services/ai_service.py # Chargement du modèle et prédiction
+├── frontend/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── public/                   # Icônes et pages d'attente (facebook/x/linkedin)
+│   └── src/
+│       ├── App.jsx               # Page principale (saisie + résultat)
+│       ├── Login.jsx             # Écran de connexion (maquette)
+│       ├── services/api.js       # Appel à l'API
+│       └── *.css                 # Styles
+├── docker-compose.yml
+├── image_99b8db.png              # Capture d'écran
+└── README.md
+```
+
+### Limites connues
+
+- L'écran de connexion n'effectue aucune vérification (maquette).
+- CORS est ouvert à toutes les origines (`allow_origins=["*"]`) : à restreindre avant toute mise en production.
+- Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
 
 ---
+
 *Projet développé par Ramcy-cloud.*
