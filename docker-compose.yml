@@ -4,6 +4,9 @@ services:
       context: ./backend
     ports:
       - "8000:8000"
+    environment:
+      # Origines autorisées (CORS), séparées par des virgules. Surchargeable via .env ou l'environnement.
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5175,http://localhost:5173}
     volumes:
       # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
       - huggingface_cache:/root/.cache/huggingface
