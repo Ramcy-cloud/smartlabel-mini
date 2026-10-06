@@ -23,19 +23,19 @@ const Login = ({ onLogin }) => {
                         <div className="social-container">
     {/* ======================================================================= */}
     {/* ZONE À MODIFIER : LIEN FACEBOOK */}
-    {/* Remplacer "/facebook.html" par le vrai lien (ex: "https://facebook.com/alten") */}
+    {/* Remplacer "/facebook.html" par le vrai lien (ex: "https://facebook.com/votre-page") */}
     <a href="/facebook.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fab fa-facebook-f"></i>
     </a>
 
     {/* ZONE À MODIFIER : LIEN X (Ancien Twitter) */}
-    {/* Remplacer "/x.html" par le vrai lien (ex: "https://x.com/alten") */}
+    {/* Remplacer "/x.html" par le vrai lien (ex: "https://x.com/votre-compte") */}
     <a href="/x.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fab fa-twitter"></i>
     </a>
 
     {/* ZONE À MODIFIER : LIEN LINKEDIN */}
-    {/* Remplacer "/linkedin.html" par le vrai lien (ex: "https://linkedin.com/company/alten") */}
+    {/* Remplacer "/linkedin.html" par le vrai lien (ex: "https://linkedin.com/company/votre-entreprise") */}
     <a href="/linkedin.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fab fa-linkedin-in"></i>
     </a>
@@ -55,19 +55,19 @@ const Login = ({ onLogin }) => {
                         <div className="social-container">
     {/* ======================================================================= */}
     {/* ZONE À MODIFIER : LIEN FACEBOOK */}
-    {/* Remplacer "/facebook.html" par le vrai lien (ex: "https://facebook.com/alten") */}
+    {/* Remplacer "/facebook.html" par le vrai lien (ex: "https://facebook.com/votre-page") */}
     <a href="/facebook.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fab fa-facebook-f"></i>
     </a>
 
     {/* ZONE À MODIFIER : LIEN X (Ancien Twitter) */}
-    {/* Remplacer "/x.html" par le vrai lien (ex: "https://x.com/alten") */}
+    {/* Remplacer "/x.html" par le vrai lien (ex: "https://x.com/votre-compte") */}
     <a href="/x.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fa-brands fa-x-twitter"></i>
     </a>
 
     {/* ZONE À MODIFIER : LIEN LINKEDIN */}
-    {/* Remplacer "/linkedin.html" par le vrai lien (ex: "https://linkedin.com/company/alten") */}
+    {/* Remplacer "/linkedin.html" par le vrai lien (ex: "https://linkedin.com/company/votre-entreprise") */}
     <a href="/linkedin.html" target="_blank" rel="noopener noreferrer" className="social">
         <i className="fab fa-linkedin-in"></i>
     </a>
