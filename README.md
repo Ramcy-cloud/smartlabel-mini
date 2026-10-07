@@ -51,15 +51,12 @@ Le modèle tourne **sur votre propre machine**. Il est téléchargé une fois de
 
 ## Résultat / ce qu'on obtient
 
-Une page web, ouverte dans votre navigateur, avec :
+Une page web, ouverte dans votre navigateur, qui s'ouvre **directement sur l'outil** (il n'y a pas de compte ni de mot de passe), avec :
 
-- un écran de connexion (voir la remarque ci-dessous) ;
 - une zone pour coller le **texte à analyser** ;
 - un champ pour écrire les **catégories candidates**, séparées par des virgules (par défaut : `joie, colère, tristesse, neutre`) ;
 - un bouton **« Soumettre à l'IA »** ;
 - un encadré **« Résultat de la prédiction »** qui affiche la catégorie retenue et le niveau de confiance. Sur la capture d'écran ci-dessus, le message de client mécontent est classé dans la catégorie `TRISTESSE`, avec un niveau de confiance de 79,80 %.
-
-> **Remarque sur l'écran de connexion** : il s'agit pour l'instant d'une **maquette**. Aucun identifiant n'est vérifié (cliquer sur « Sign In » suffit pour entrer) et le formulaire d'inscription n'enregistre rien. Les icônes Facebook, X et LinkedIn mènent vers des pages d'attente.
 
 ---
 
@@ -208,10 +205,9 @@ smartlabel-mini/
 │   ├── package.json
 │   ├── index.html
 │   ├── vite.config.js
-│   ├── public/                   # Icônes et pages d'attente (facebook/x/linkedin)
+│   ├── public/                   # Icônes
 │   └── src/
 │       ├── App.jsx               # Page principale (saisie + résultat)
-│       ├── Login.jsx             # Écran de connexion (maquette)
 │       ├── services/api.js       # Appel à l'API
 │       └── *.css                 # Styles
 ├── docker-compose.yml
@@ -222,7 +218,7 @@ smartlabel-mini/
 
 ### Limites connues
 
-- L'écran de connexion n'effectue aucune vérification (maquette).
+- L'application n'a **aucune authentification** : l'écran de connexion factice a été retiré, car il ne protégeait rien. Quiconque peut joindre le frontend ou l'API peut l'utiliser ; ne l'exposez pas sur Internet sans protection (par exemple un proxy avec authentification).
 - Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
 
 ---

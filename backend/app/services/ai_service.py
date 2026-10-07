@@ -3,7 +3,7 @@ from transformers import pipeline
 class ZeroShotService:
     def __init__(self):
         # Initialisation du pipeline Zero-Shot Classification
-        # facebook/bart-large-mnli est le standard absolu, rapide et précis en anglais/français
+        # joeddav/xlm-roberta-large-xnli : modèle multilingue (dont français et anglais) entraîné sur XNLI
         print("Chargement du modèle d'IA en cours...")
         self.classifier = pipeline("zero-shot-classification", model="joeddav/xlm-roberta-large-xnli")
         print("Modèle chargé et prêt !")
