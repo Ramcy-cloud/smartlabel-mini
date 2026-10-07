@@ -25,7 +25,7 @@ function App() {
       const data = await predictLabel(text, candidateLabels);
       setResult(data);
       message.success('Analyse terminée avec succès !');
-    } catch (error) {
+    } catch {
       message.error('Erreur de communication avec l\'API. Vérifie que ton backend tourne.');
     } finally {
       setLoading(false);
