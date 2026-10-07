@@ -186,6 +186,14 @@ python -m pytest
 
 Les tests vérifient la configuration CORS. Le vrai modèle d'IA n'est pas chargé : il est remplacé par un faux.
 
+### CI/CD
+
+Les workflows s'appuient sur les modèles partagés de [`Ramcy-cloud/ci-templates`](https://github.com/Ramcy-cloud/ci-templates) (version `v1`).
+
+- **CI** (`.github/workflows/ci.yml`) — à chaque pull request et à chaque push sur `main` : tests du backend (`pytest`, sans charger le vrai modèle), lint et build du frontend, construction des images Docker sans publication.
+- **CD** (`.github/workflows/cd.yml`) — quand la CI est verte sur `main`, une livraison démarre puis **attend une validation manuelle** (environnement GitHub `production`). Pour livrer : onglet *Actions* → exécution *CD* → **Review deployments** → cocher `production` → **Approve and deploy**. Les images sont alors publiées sur `ghcr.io/ramcy-cloud/smartlabel-mini/backend` et `.../frontend` (tags `latest` et SHA du commit).
+- Aucun secret n'est nécessaire : le token `GITHUB_TOKEN` fourni par GitHub Actions suffit pour publier sur ghcr.io.
+
 ### Structure du projet
 
 ```

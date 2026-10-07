@@ -1,0 +1,45 @@
+# CD (livraison continue) : publie les images Docker sur ghcr.io APRÈS validation manuelle.
+#
+# Déclenchement : automatiquement quand le workflow « CI » se termine en succès
+# sur un push vers main. Le job de livraison utilise l'environnement GitHub « production »,
+# protégé par une validation (required reviewer : Ramcy-cloud). Il attend donc un clic :
+#   onglet Actions → exécution « CD » → « Review deployments » → cocher production → « Approve and deploy ».
+#
+# Images publiées (tags : sha du commit + latest) :
+#   ghcr.io/ramcy-cloud/smartlabel-mini/backend
+#   ghcr.io/ramcy-cloud/smartlabel-mini/frontend
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+jobs:
+  livraison:
+    name: Livraison
+    # Uniquement après une CI verte déclenchée par un push sur main (jamais par une PR).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    permissions:
+      contents: read
+      packages: write
+    uses: Ramcy-cloud/ci-templates/.github/workflows/docker-delivery.yml@v1
+    with:
+      environment: production
+      ref: ${{ github.event.workflow_run.head_sha }}
+      separator: "/"
+      free-disk-space: true
+      images: >-
+        [{"name": "backend", "context": "backend"},
+         {"name": "frontend", "context": "frontend"}]
