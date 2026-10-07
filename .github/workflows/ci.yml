@@ -1,0 +1,49 @@
+# CI : vérifie chaque pull request et chaque push sur main.
+# Les étapes sont définies une seule fois dans Ramcy-cloud/ci-templates (workflows réutilisables).
+# Le CD (.github/workflows/cd.yml) démarre automatiquement quand cette CI est verte sur main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    uses: Ramcy-cloud/ci-templates/.github/workflows/python-ci.yml@v1
+    with:
+      working-directory: backend
+      python-version: "3.10" # identique à l'image Docker (python:3.10-slim)
+      # requirements-dev.txt inclut requirements.txt + pytest/httpx.
+      # Les tests remplacent le modèle IA par un faux (tests/conftest.py) : aucun téléchargement.
+      # torch en version CPU (pas de paquets CUDA de plusieurs Go) : suffisant pour la CI.
+      requirements-file: ""
+      install-command: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-dev.txt
+      test-command: python -m pytest
+
+  frontend:
+    name: Frontend
+    uses: Ramcy-cloud/ci-templates/.github/workflows/node-ci.yml@v1
+    with:
+      working-directory: frontend
+      node-version: "20" # identique à l'image Docker (node:20-alpine)
+      lint-command: npm run lint
+      build-command: npm run build
+
+  docker:
+    name: Docker (build sans publication)
+    needs: [backend, frontend]
+    uses: Ramcy-cloud/ci-templates/.github/workflows/docker-build-check.yml@v1
+    with:
+      images: >-
+        [{"name": "backend", "context": "backend"},
+         {"name": "frontend", "context": "frontend"}]
+      free-disk-space: true # l'image backend embarque torch et transformers
