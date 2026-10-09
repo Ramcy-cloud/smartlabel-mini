@@ -1,6 +1,8 @@
+import threading
+
 from fastapi import APIRouter, HTTPException, Path
 from app.services.ai_service import ai_service
-from app.services.label_sets import label_set_store
+from app.services.label_sets import MAX_LABEL_SETS, TooManyLabelSets, label_set_store
 from app.models.schemas import (
     LabelSet,
     PredictRequest,
@@ -11,6 +13,9 @@ from app.models.schemas import (
 )
 
 router = APIRouter()
+
+# Le modèle tourne sur le processeur : une seule inférence à la fois, les autres requêtes patientent
+_inference_lock = threading.Lock()
 
 @router.post("/predict", response_model=PredictResponse)
 async def predict(request: PredictRequest):
@@ -25,7 +30,8 @@ def triage(request: TriageRequest):
     """Propose une catégorie (et une priorité si fournie) pour chaque ticket."""
     results = []
     for ticket in request.tickets:
-        category = ai_service.predict_label(ticket.text, request.categories)
+        with _inference_lock:
+            category = ai_service.predict_label(ticket.text, request.categories)
         item = TriageResult(
             id=ticket.id,
             text=ticket.text,
@@ -33,7 +39,8 @@ def triage(request: TriageRequest):
             category_confidence=category["confidence_score"],
         )
         if request.priorities:
-            priority = ai_service.predict_label(ticket.text, request.priorities)
+            with _inference_lock:
+                priority = ai_service.predict_label(ticket.text, request.priorities)
             item.priority = priority["predicted_label"]
             item.priority_confidence = priority["confidence_score"]
         results.append(item)
@@ -50,7 +57,10 @@ def save_label_set(label_set: LabelSet, name: str = Path(min_length=1, max_lengt
     name = name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Le nom du jeu ne peut pas être vide.")
-    label_set_store.save(name, label_set)
+    try:
+        label_set_store.save(name, label_set)
+    except TooManyLabelSets:
+        raise HTTPException(status_code=409, detail=f"Maximum {MAX_LABEL_SETS} jeux enregistrés : supprimez-en un d'abord.")
     return label_set
 
 

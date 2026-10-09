@@ -12,6 +12,7 @@ class PredictResponse(BaseModel):
 MAX_TICKET_CHARS = 5000
 MAX_TICKETS_PER_REQUEST = 50
 MAX_LABELS = 20
+MAX_LABEL_CHARS = 100
 
 
 def _clean_labels(labels: list[str]) -> list[str]:
@@ -20,6 +21,8 @@ def _clean_labels(labels: list[str]) -> list[str]:
         label = label.strip()
         if not label:
             raise ValueError("Un libellé ne peut pas être vide.")
+        if len(label) > MAX_LABEL_CHARS:
+            raise ValueError(f"Un libellé ne peut pas dépasser {MAX_LABEL_CHARS} caractères.")
         if label.casefold() in {c.casefold() for c in cleaned}:
             raise ValueError(f"Libellé en double : {label}")
         cleaned.append(label)

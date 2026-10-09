@@ -64,3 +64,23 @@ def test_label_set_save_persist_and_delete(client):
 def test_label_set_rejects_single_priority_and_blank_name(client):
     assert client.put("/api/label-sets/x", json={"categories": ["a", "b"], "priorities": ["p"]}).status_code == 422
     assert client.put("/api/label-sets/%20", json={"categories": ["a", "b"]}).status_code == 422
+
+
+def test_label_too_long_is_rejected(client):
+    payload = {"tickets": [{"text": "x"}], "categories": ["a", "b" * 101]}
+    assert client.post("/api/triage", json=payload).status_code == 422
+
+
+def test_label_sets_are_capped(client):
+    body = {"categories": ["a", "b"]}
+    for i in range(49):  # + le jeu par défaut = 50
+        assert client.put(f"/api/label-sets/jeu{i}", json=body).status_code == 200
+    assert client.put("/api/label-sets/de-trop", json=body).status_code == 409
+    assert client.put("/api/label-sets/jeu0", json={"categories": ["c", "d"]}).status_code == 200
+
+
+def test_corrupted_label_sets_file_is_kept_aside(client):
+    path = label_set_store.path
+    path.write_text("{pas du json", encoding="utf-8")
+    assert "Support client" in client.get("/api/label-sets").json()
+    assert path.with_suffix(".corrompu").read_text(encoding="utf-8") == "{pas du json"
