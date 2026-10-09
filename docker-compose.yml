@@ -10,6 +10,8 @@ services:
     volumes:
       # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
       - huggingface_cache:/root/.cache/huggingface
+      # Jeux de catégories enregistrés par l'équipe
+      - label_sets_data:/app/data
 
   frontend:
     build: 
@@ -22,3 +24,4 @@ services:
 
 volumes:
   huggingface_cache:
+  label_sets_data:

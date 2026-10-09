@@ -44,3 +44,6 @@ desktop.ini
 # Logs
 logs/
 *.log
+
+# Données de l'application (jeux de catégories enregistrés)
+backend/data/

@@ -60,7 +60,7 @@ def test_disallowed_method_and_header_are_rejected(client):
         "/api/predict",
         headers={
             "Origin": ALLOWED,
-            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Method": "PATCH",
             "Access-Control-Request-Headers": "x-custom",
         },
     )
