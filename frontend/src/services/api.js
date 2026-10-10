@@ -20,3 +20,22 @@ export const predictLabel = async (text, candidateLabels) => {
     throw error;
   }
 };
+
+// Propose une catégorie (et une priorité) pour une liste de tickets
+export const triageTickets = async (tickets, categories, priorities) => {
+  const response = await apiClient.post('/triage', {
+    tickets,
+    categories,
+    priorities: priorities && priorities.length ? priorities : null,
+  });
+  return response.data.results;
+};
+
+export const getLabelSets = async () => (await apiClient.get('/label-sets')).data;
+
+export const saveLabelSet = async (name, labelSet) =>
+  (await apiClient.put(`/label-sets/${encodeURIComponent(name)}`, labelSet)).data;
+
+export const deleteLabelSet = async (name) => {
+  await apiClient.delete(`/label-sets/${encodeURIComponent(name)}`);
+};

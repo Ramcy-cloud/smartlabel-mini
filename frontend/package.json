@@ -13,6 +13,7 @@
     "@ant-design/icons": "^6.2.2",
     "antd": "^6.3.7",
     "axios": "^1.16.0",
+    "papaparse": "^5.7.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

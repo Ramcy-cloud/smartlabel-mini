@@ -49,14 +49,17 @@ Le modèle tourne **sur votre propre machine**. Il est téléchargé une fois de
 
 ---
 
-## Résultat / ce qu'on obtient
+## Comment on s'en sert : le tri des tickets de support
 
-Une page web, ouverte dans votre navigateur, qui s'ouvre **directement sur l'outil** (il n'y a pas de compte ni de mot de passe), avec :
+L'application est pensée pour une équipe de support client qui reçoit des tickets (emails, formulaires, messages) à répartir. Elle s'ouvre **directement sur l'outil** (il n'y a pas de compte ni de mot de passe). Le travail se fait en trois étapes :
 
-- une zone pour coller le **texte à analyser** ;
-- un champ pour écrire les **catégories candidates**, séparées par des virgules (par défaut : `joie, colère, tristesse, neutre`) ;
-- un bouton **« Soumettre à l'IA »** ;
-- un encadré **« Résultat de la prédiction »** qui affiche la catégorie retenue et le niveau de confiance. Sur la capture d'écran ci-dessus, le message de client mécontent est classé dans la catégorie `TRISTESSE`, avec un niveau de confiance de 79,80 %.
+1. **Choisir les catégories de tri.** Un jeu est proposé (« Support client » : facturation, livraison, panne technique, compte et accès, réclamation, autre, avec les priorités urgente / normale / basse). On peut le modifier, créer ses propres jeux et les **enregistrer pour toute l'équipe**.
+2. **Charger les tickets.** Soit en important un **fichier CSV** (la colonne du texte est repérée par son nom : `texte`, `message`, `description`… ; une colonne `id` est facultative), soit en collant les tickets, un par ligne. Maximum 500 tickets à la fois.
+3. **Valider les résultats.** Pour chaque ticket, l'IA **propose** une catégorie et une priorité avec un niveau de confiance. Sous le **seuil de confiance** (75 % par défaut, réglable), le ticket est marqué **« à relire »**. La personne qui trie peut corriger la catégorie ou la priorité, valider ligne par ligne ou d'un clic tous les cas sûrs, puis **exporter le résultat en CSV** (avec la proposition de l'IA, la décision finale et le statut).
+
+Principe : **l'IA propose, l'humain décide.** Le pourcentage de confiance sert à concentrer l'attention humaine sur les cas douteux.
+
+> La capture d'écran en haut de cette page montre l'ancienne version de l'interface (analyse d'un seul texte).
 
 ---
 
@@ -76,6 +79,10 @@ L'application est composée de deux services, conteneurisés avec Docker :
 | Méthode | Route | Rôle |
 |---|---|---|
 | `POST` | `/api/predict` | Classe un texte parmi les catégories fournies |
+| `POST` | `/api/triage` | Propose une catégorie (et une priorité, facultative) pour jusqu'à 50 tickets |
+| `GET` | `/api/label-sets` | Liste les jeux de catégories enregistrés |
+| `PUT` | `/api/label-sets/{nom}` | Crée ou remplace un jeu de catégories (50 jeux maximum) |
+| `DELETE` | `/api/label-sets/{nom}` | Supprime un jeu |
 
 Exemple de requête :
 
@@ -166,6 +173,15 @@ npm run dev
 
 L'interface est alors disponible sur **http://localhost:5173**.
 
+### Sécurité de l'API
+
+- **Limites :** requête de 1 Mo maximum (`413` au-delà), 50 tickets de 5 000 caractères par requête, 20 libellés de 100 caractères par jeu. Les routes d'IA sont limitées par adresse IP (`RATE_LIMIT_PER_MINUTE`, 60 par défaut, `429` au-delà). Une seule prédiction est calculée à la fois : les autres requêtes patientent.
+- **Hôtes acceptés :** `ALLOWED_HOSTS` (noms séparés par des virgules ; par défaut `localhost,127.0.0.1`). À renseigner avec le nom de domaine réel en déploiement.
+- **En-têtes :** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control: no-store` sur l'API. Ajoutez `Strict-Transport-Security` et le HTTPS sur le serveur frontal (proxy) en production.
+- **Données :** les textes des tickets ne sont ni enregistrés ni écrits dans les journaux. Seuls les jeux de catégories sont conservés, dans `backend/data/label_sets.json` (variable `LABEL_SETS_PATH`, volume Docker `label_sets_data`). Un fichier corrompu est mis de côté en `.corrompu` au lieu d'être écrasé.
+- **Export CSV :** les cellules qui commencent par `=`, `+`, `-` ou `@` sont neutralisées pour éviter l'exécution de formules dans Excel (« CSV injection »).
+- **Un seul processus :** le verrou des jeux enregistrés et la limitation de débit sont en mémoire ; lancez Uvicorn avec un seul worker.
+
 ### Configuration : origines autorisées (CORS)
 
 Par sécurité, le navigateur n'autorise une page web à interroger l'API que si l'adresse de cette page figure dans la liste des **origines autorisées**. Cette liste se règle avec la variable d'environnement `ALLOWED_ORIGINS` : des adresses séparées par des virgules, les espaces sont ignorés.
@@ -174,7 +190,7 @@ Par sécurité, le navigateur n'autorise une page web à interroger l'API que si
 - **Exemple pour un déploiement** : `ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com`
 - `*` (« tout le monde ») est **refusé** : le backend ne démarre pas si cette valeur est présente.
 - Avec Docker, `docker-compose.yml` transmet la variable au backend ; vous pouvez la définir dans un fichier `.env` placé à la racine (voir `.env.example`). Sans Docker, définissez-la avant `uvicorn`, par exemple `ALLOWED_ORIGINS=https://app.example.com uvicorn app.main:app` (Linux/macOS).
-- Seules les méthodes `GET` et `POST` et l'en-tête `Content-Type` sont autorisés, sans cookies ni identifiants.
+- Seules les méthodes `GET`, `POST`, `PUT`, `DELETE` et l'en-tête `Content-Type` sont autorisés, sans cookies ni identifiants.
 
 ### Tests du backend
 
@@ -202,12 +218,15 @@ smartlabel-mini/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── requirements-dev.txt      # Dépendances de test (pytest)
-│   ├── tests/                    # Tests (CORS)
+│   ├── tests/                    # Tests (CORS, triage, sécurité)
 │   └── app/
 │       ├── main.py               # Application FastAPI, CORS (ALLOWED_ORIGINS), préfixe /api
-│       ├── api/routes.py         # Route POST /predict
+│       ├── security.py           # Limites de taille et de débit, en-têtes, hôtes
+│       ├── api/routes.py         # Routes /predict, /triage, /label-sets
 │       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
-│       └── services/ai_service.py # Chargement du modèle et prédiction
+│       └── services/
+│           ├── ai_service.py     # Chargement du modèle et prédiction
+│           └── label_sets.py     # Jeux de catégories enregistrés
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
@@ -215,7 +234,10 @@ smartlabel-mini/
 │   ├── vite.config.js
 │   ├── public/                   # Icônes
 │   └── src/
-│       ├── App.jsx               # Page principale (saisie + résultat)
+│       ├── App.jsx               # Page principale (catégories, tickets, résultats)
+│       ├── components/           # Choix des catégories, saisie des tickets, tableau de résultats
+│       ├── csv.js                # Lecture et export CSV
+│       ├── triage.js             # Règles de statut (à relire, corrigé…)
 │       ├── services/api.js       # Appel à l'API
 │       └── *.css                 # Styles
 ├── docker-compose.yml
@@ -227,6 +249,9 @@ smartlabel-mini/
 ### Limites connues
 
 - L'application n'a **aucune authentification** : l'écran de connexion factice a été retiré, car il ne protégeait rien. Quiconque peut joindre le frontend ou l'API peut l'utiliser ; ne l'exposez pas sur Internet sans protection (par exemple un proxy avec authentification).
+- Pas de traitement en arrière-plan : l'analyse se fait par lots de 10 tickets, page ouverte (environ une à deux secondes par ticket sur processeur). Fermer la page interrompt l'analyse.
+- Les jeux de catégories sont partagés par toute personne qui accède à l'application (pas de droits par utilisateur).
+- La qualité dépend du modèle zero-shot : sur des catégories proches, elle est moindre qu'un modèle entraîné sur vos propres tickets. Mesurez la précision sur un échantillon de vos tickets avant tout usage réel.
 - Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
 
 ---

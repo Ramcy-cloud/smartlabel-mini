@@ -7,9 +7,13 @@ services:
     environment:
       # Origines autorisées (CORS), séparées par des virgules. Surchargeable via .env ou l'environnement.
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5175,http://localhost:5173}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
     volumes:
       # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
       - huggingface_cache:/root/.cache/huggingface
+      # Jeux de catégories enregistrés par l'équipe
+      - label_sets_data:/app/data
 
   frontend:
     build: 
@@ -22,3 +26,4 @@ services:
 
 volumes:
   huggingface_cache:
+  label_sets_data:
