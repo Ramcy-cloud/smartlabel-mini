@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import auth_headers
 from app.main import create_app
 from app.services.label_sets import label_set_store
 
@@ -8,7 +9,7 @@ from app.services.label_sets import label_set_store
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(label_set_store, "path", tmp_path / "label_sets.json")
-    return TestClient(create_app())
+    return TestClient(create_app(), headers=auth_headers())
 
 
 def test_triage_returns_category_and_priority(client):
@@ -21,7 +22,8 @@ def test_triage_returns_category_and_priority(client):
     results = response.json()["results"]
     assert [r["id"] for r in results] == ["1", None]
     assert results[0]["category"] == "facturation"
-    assert results[0]["priority"] == "urgente"
+    assert results[0]["priority"] == "normale"  # aucun signal : priorité par défaut
+    assert results[0]["priority_reasons"] == ["aucun signal particulier"]
     assert 0 <= results[0]["category_confidence"] <= 1
 
 
@@ -55,7 +57,7 @@ def test_default_label_set_is_offered(client):
 def test_label_set_save_persist_and_delete(client):
     body = {"categories": ["rh", "it"], "priorities": ["haute", "basse"]}
     assert client.put("/api/label-sets/Mon équipe", json=body).status_code == 200
-    assert client.get("/api/label-sets").json()["Mon équipe"] == body
+    assert client.get("/api/label-sets").json()["Mon équipe"] == {**body, "urgent_keywords": [], "floors": {}}
     assert client.delete("/api/label-sets/Mon équipe").status_code == 204
     assert "Mon équipe" not in client.get("/api/label-sets").json()
     assert client.delete("/api/label-sets/Mon équipe").status_code == 404

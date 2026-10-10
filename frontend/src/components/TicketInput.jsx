@@ -48,7 +48,7 @@ export default function TicketInput({ onLoad }) {
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p>Glissez un fichier CSV ici ou cliquez pour le choisir</p>
               <Text type="secondary">
-                Colonne du texte : « texte », « message », « description »… (sinon la première). Colonne « id » facultative.
+                Colonne du texte : « texte », « message », « description »… (sinon la première). Colonnes facultatives : « id », « vip » (oui/non) et « anciennete_jours » (nombre de jours d'attente).
               </Text>
             </Upload.Dragger>
           ),
@@ -57,7 +57,7 @@ export default function TicketInput({ onLoad }) {
           key: 'paste',
           label: 'Coller des tickets',
           children: (
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space orientation="vertical" style={{ width: '100%' }}>
               <TextArea rows={6} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder={PLACEHOLDER} />
               <Button type="primary" disabled={!pasted.trim()} onClick={() => load(parseTicketsText(pasted))}>
                 Charger les tickets

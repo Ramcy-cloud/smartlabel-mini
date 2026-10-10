@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Layout, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
-import { deleteLabelSet, getLabelSets, saveLabelSet, triageTickets } from './services/api';
+import { LogoutOutlined } from '@ant-design/icons';
+import { clearToken, deleteLabelSet, getLabelSets, getToken, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
 import { downloadCsv, toCsv } from './csv';
 import LabelSetPanel from './components/LabelSetPanel';
+import LoginScreen from './components/LoginScreen';
 import TicketInput from './components/TicketInput';
 import ResultsTable from './components/ResultsTable';
-import { isCorrected, lowConfidence, rowStatus } from './triage';
+import { isCorrected, needsReview, rowStatus } from './triage';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -16,10 +18,13 @@ const DEFAULT_THRESHOLD = 75; // % de confiance sous lequel un humain doit relir
 const apiError = (error, fallback) => error?.response?.data?.detail?.toString?.() ?? fallback;
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
   const [sets, setSets] = useState({});
   const [currentSet, setCurrentSet] = useState(undefined);
   const [categories, setCategories] = useState([]);
   const [priorities, setPriorities] = useState([]);
+  const [urgentKeywords, setUrgentKeywords] = useState([]);
+  const [floors, setFloors] = useState({});
   const [savingSet, setSavingSet] = useState(false);
 
   const [tickets, setTickets] = useState([]);
@@ -37,9 +42,38 @@ function App() {
     setCurrentSet(name);
     setCategories(loaded[name]?.categories ?? []);
     setPriorities(loaded[name]?.priorities ?? []);
+    setUrgentKeywords(loaded[name]?.urgent_keywords ?? []);
+    setFloors(loaded[name]?.floors ?? {});
   }, []);
 
+  const resetWorkspace = useCallback(() => {
+    setSets({});
+    setCurrentSet(undefined);
+    setCategories([]);
+    setPriorities([]);
+    setUrgentKeywords([]);
+    setFloors({});
+    setTickets([]);
+    setRows([]);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    clearToken();
+    resetWorkspace();
+    setIsAuthenticated(false);
+  }, [resetWorkspace]);
+
+  // Session refusée par le serveur : retour à l'écran de connexion
   useEffect(() => {
+    onUnauthorized(() => {
+      resetWorkspace();
+      setIsAuthenticated(false);
+      message.warning('Session expirée : reconnectez-vous.');
+    });
+  }, [resetWorkspace]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     getLabelSets()
       .then((loaded) => {
         setSets(loaded);
@@ -47,12 +81,24 @@ function App() {
         if (first) applySet(first, loaded);
       })
       .catch(() => message.error("Impossible de charger les jeux de catégories. Vérifiez que le backend tourne."));
-  }, [applySet]);
+  }, [applySet, isAuthenticated]);
+
+  // Une priorité minimale n'a de sens que pour une catégorie et une priorité encore présentes dans les listes
+  const validFloors = () =>
+    Object.fromEntries(Object.entries(floors).filter(([category, priority]) => categories.includes(category) && priorities.includes(priority)));
+
+  const setFloor = (category, priority) =>
+    setFloors((current) => {
+      const next = { ...current };
+      if (priority) next[category] = priority;
+      else delete next[category];
+      return next;
+    });
 
   const handleSaveSet = async (name) => {
     setSavingSet(true);
     try {
-      await saveLabelSet(name, { categories, priorities });
+      await saveLabelSet(name, { categories, priorities, urgent_keywords: urgentKeywords, floors: validFloors() });
       const loaded = await getLabelSets();
       setSets(loaded);
       setCurrentSet(name);
@@ -83,6 +129,7 @@ function App() {
   const handleRun = async () => {
     const usedCategories = [...categories];
     const usedPriorities = [...priorities];
+    const rules = { urgentKeywords: [...urgentKeywords], floors: validFloors() };
     setRunning(true);
     setProgress(0);
     setRows([]);
@@ -91,7 +138,7 @@ function App() {
     try {
       for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
         const batch = tickets.slice(i, i + BATCH_SIZE);
-        const results = await triageTickets(batch, usedCategories, usedPriorities);
+        const results = await triageTickets(batch, { categories: usedCategories, priorities: usedPriorities, ...rules });
         results.forEach((r, j) =>
           done.push({
             ...r,
@@ -120,13 +167,14 @@ function App() {
   const updateRow = (key, changes) => setRows((current) => current.map((r) => (r.key === key ? { ...r, ...changes } : r)));
 
   const t = threshold / 100;
-  const toReview = useMemo(() => rows.filter((r) => !r.validated && lowConfidence(r, t)).length, [rows, t]);
+  const topPriority = runLabels.priorities[0];
+  const toReview = useMemo(() => rows.filter((r) => !r.validated && needsReview(r, t, topPriority)).length, [rows, t, topPriority]);
   const validated = useMemo(() => rows.filter((r) => r.validated).length, [rows]);
   const corrected = useMemo(() => rows.filter((r) => r.validated && isCorrected(r)).length, [rows]);
-  const visibleRows = onlyReview ? rows.filter((r) => !r.validated && lowConfidence(r, t)) : rows;
+  const visibleRows = onlyReview ? rows.filter((r) => !r.validated && needsReview(r, t, topPriority)) : rows;
 
   const validateConfident = () => {
-    setRows((current) => current.map((r) => (!r.validated && !lowConfidence(r, t) ? { ...r, validated: true } : r)));
+    setRows((current) => current.map((r) => (!r.validated && !needsReview(r, t, topPriority) ? { ...r, validated: true } : r)));
   };
 
   const handleExport = () => {
@@ -135,29 +183,37 @@ function App() {
       ticket: r.text,
       categorie: r.category,
       categorie_proposee_ia: r.suggestedCategory,
-      ...(runLabels.priorities.length ? { priorite: r.priority, priorite_proposee_ia: r.suggestedPriority } : {}),
+      ...(runLabels.priorities.length
+        ? { priorite: r.priority, priorite_proposee: r.suggestedPriority, raisons_priorite: (r.priority_reasons ?? []).join(' ; ') }
+        : {}),
       confiance_categorie: r.category_confidence,
-      ...(runLabels.priorities.length ? { confiance_priorite: r.priority_confidence } : {}),
-      statut: rowStatus(r, t),
+      statut: rowStatus(r, t, topPriority),
     }));
     downloadCsv(`tickets-tries-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(data));
   };
 
+  if (!isAuthenticated) {
+    return <LoginScreen onSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <Layout style={{ minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', background: '#001529' }}>
+      <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#001529' }}>
         <Title level={3} style={{ color: 'white', margin: 0 }}>
           SmartLabel-Mini · Tri des tickets de support
         </Title>
+        <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} style={{ color: 'white' }}>
+          Déconnexion
+        </Button>
       </Header>
 
       <Content style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <Alert
             type="info"
             showIcon
-            message="L'IA propose, vous décidez."
-            description={`Chaque ticket reçoit une catégorie et une priorité suggérées. Sous ${threshold} % de confiance, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Aucun texte n'est envoyé hors de votre infrastructure.`}
+            title="L'IA propose, vous décidez."
+            description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Aucun texte n'est envoyé hors de votre infrastructure.`}
           />
 
           <Row gutter={[24, 24]}>
@@ -169,7 +225,9 @@ function App() {
                   onSelect={(name) => applySet(name, sets)}
                   categories={categories}
                   priorities={priorities}
-                  onChange={{ categories: setCategories, priorities: setPriorities }}
+                  urgentKeywords={urgentKeywords}
+                  floors={floors}
+                  onChange={{ categories: setCategories, priorities: setPriorities, urgentKeywords: setUrgentKeywords, floor: setFloor }}
                   onSave={handleSaveSet}
                   onDelete={handleDeleteSet}
                   saving={savingSet}
@@ -192,10 +250,10 @@ function App() {
 
           {rows.length > 0 && (
             <Card title="3. Résultats à valider">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                 <Row gutter={[16, 16]} align="middle">
                   <Col xs={12} md={4}><Statistic title="Analysés" value={rows.length} /></Col>
-                  <Col xs={12} md={4}><Statistic title="À relire" value={toReview} valueStyle={toReview ? { color: '#d48806' } : undefined} /></Col>
+                  <Col xs={12} md={4}><Statistic title="À relire" value={toReview} styles={toReview ? { content: { color: '#d48806' } } : undefined} /></Col>
                   <Col xs={12} md={4}><Statistic title="Validés" value={validated} /></Col>
                   <Col xs={12} md={4}><Statistic title="Corrigés" value={corrected} /></Col>
                   <Col xs={24} md={8}>
@@ -211,7 +269,7 @@ function App() {
                   <Text>Afficher seulement les cas à relire</Text>
                 </Space>
 
-                {running && <Alert type="warning" showIcon message="Analyse en cours : le tableau se complète au fur et à mesure." />}
+                {running && <Alert type="warning" showIcon title="Analyse en cours : le tableau se complète au fur et à mesure." />}
 
                 <ResultsTable
                   rows={visibleRows}
