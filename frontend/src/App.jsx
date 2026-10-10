@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Layout, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
-import { deleteLabelSet, getLabelSets, saveLabelSet, triageTickets } from './services/api';
+import { LogoutOutlined } from '@ant-design/icons';
+import { clearToken, deleteLabelSet, getLabelSets, getToken, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
 import { downloadCsv, toCsv } from './csv';
 import LabelSetPanel from './components/LabelSetPanel';
+import LoginScreen from './components/LoginScreen';
 import TicketInput from './components/TicketInput';
 import ResultsTable from './components/ResultsTable';
 import { isCorrected, lowConfidence, rowStatus } from './triage';
@@ -16,6 +18,7 @@ const DEFAULT_THRESHOLD = 75; // % de confiance sous lequel un humain doit relir
 const apiError = (error, fallback) => error?.response?.data?.detail?.toString?.() ?? fallback;
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
   const [sets, setSets] = useState({});
   const [currentSet, setCurrentSet] = useState(undefined);
   const [categories, setCategories] = useState([]);
@@ -39,7 +42,32 @@ function App() {
     setPriorities(loaded[name]?.priorities ?? []);
   }, []);
 
+  const resetWorkspace = useCallback(() => {
+    setSets({});
+    setCurrentSet(undefined);
+    setCategories([]);
+    setPriorities([]);
+    setTickets([]);
+    setRows([]);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    clearToken();
+    resetWorkspace();
+    setIsAuthenticated(false);
+  }, [resetWorkspace]);
+
+  // Session refusée par le serveur : retour à l'écran de connexion
   useEffect(() => {
+    onUnauthorized(() => {
+      resetWorkspace();
+      setIsAuthenticated(false);
+      message.warning('Session expirée : reconnectez-vous.');
+    });
+  }, [resetWorkspace]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     getLabelSets()
       .then((loaded) => {
         setSets(loaded);
@@ -47,7 +75,7 @@ function App() {
         if (first) applySet(first, loaded);
       })
       .catch(() => message.error("Impossible de charger les jeux de catégories. Vérifiez que le backend tourne."));
-  }, [applySet]);
+  }, [applySet, isAuthenticated]);
 
   const handleSaveSet = async (name) => {
     setSavingSet(true);
@@ -143,12 +171,19 @@ function App() {
     downloadCsv(`tickets-tries-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(data));
   };
 
+  if (!isAuthenticated) {
+    return <LoginScreen onSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <Layout style={{ minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', background: '#001529' }}>
+      <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#001529' }}>
         <Title level={3} style={{ color: 'white', margin: 0 }}>
           SmartLabel-Mini · Tri des tickets de support
         </Title>
+        <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} style={{ color: 'white' }}>
+          Déconnexion
+        </Button>
       </Header>
 
       <Content style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
