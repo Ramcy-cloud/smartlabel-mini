@@ -64,11 +64,13 @@ export const predictLabel = async (text, candidateLabels) => {
 };
 
 // Propose une catégorie (et une priorité) pour une liste de tickets
-export const triageTickets = async (tickets, categories, priorities) => {
+export const triageTickets = async (tickets, { categories, priorities, urgentKeywords, floors }) => {
   const response = await apiClient.post('/triage', {
     tickets,
     categories,
     priorities: priorities && priorities.length ? priorities : null,
+    urgent_keywords: urgentKeywords ?? [],
+    floors: floors ?? {},
   });
   return response.data.results;
 };

@@ -1,10 +1,12 @@
-import { Button, Select, Table, Tag, Tooltip } from 'antd';
+import { Button, Select, Space, Table, Tag, Tooltip } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import { rowStatus } from '../triage';
 
 const STATUS_COLOR = { 'validé': 'success', 'corrigé': 'processing', 'à relire': 'warning', 'sûr': 'default' };
 
 // Tableau des tickets classés : catégorie et priorité modifiables, validation ligne par ligne
 export default function ResultsTable({ rows, threshold, categories, priorities, onUpdate }) {
+  const topPriority = priorities[0];
   const columns = [
     { title: 'Id', dataIndex: 'id', width: 70 },
     {
@@ -35,32 +37,38 @@ export default function ResultsTable({ rows, threshold, categories, priorities, 
       dataIndex: 'category_confidence',
       width: 120,
       sorter: (a, b) => a.category_confidence - b.category_confidence,
-      render: (v, row) => {
-        const pct = (x) => `${(x * 100).toFixed(0)} %`;
-        return row.priority_confidence != null ? `${pct(v)} / ${pct(row.priority_confidence)}` : pct(v);
-      },
+      render: (v) => `${(v * 100).toFixed(0)} %`,
     },
     ...(priorities.length
       ? [{
           title: 'Priorité',
           dataIndex: 'priority',
-          width: 130,
-          render: (value, row) => (
-            <Select
-              size="small"
-              style={{ width: '100%' }}
-              value={value}
-              options={priorities.map((p) => ({ value: p, label: p }))}
-              onChange={(v) => onUpdate(row.key, { priority: v, validated: true })}
-            />
-          ),
+          width: 170,
+          render: (value, row) => {
+            const manual = row.priority !== row.suggestedPriority;
+            const why = manual ? 'Modifiée à la main' : (row.priority_reasons ?? []).join(' · ');
+            return (
+              <Space size={4}>
+                <Select
+                  size="small"
+                  style={{ width: 120 }}
+                  value={value}
+                  options={priorities.map((p) => ({ value: p, label: p }))}
+                  onChange={(v) => onUpdate(row.key, { priority: v, validated: true })}
+                />
+                <Tooltip title={why || 'Aucune raison enregistrée'}>
+                  <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                </Tooltip>
+              </Space>
+            );
+          },
         }]
       : []),
     {
       title: 'Statut',
       width: 110,
       render: (_, row) => {
-        const status = rowStatus(row, threshold);
+        const status = rowStatus(row, threshold, topPriority);
         return <Tag color={STATUS_COLOR[status]}>{status}</Tag>;
       },
     },
