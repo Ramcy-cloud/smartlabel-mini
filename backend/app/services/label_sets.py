@@ -19,6 +19,9 @@ DEFAULT_SETS = {
     "Support client": {
         "categories": ["facturation", "livraison", "panne technique", "compte et accès", "réclamation", "autre"],
         "priorities": ["urgente", "normale", "basse"],
+        "urgent_keywords": [],
+        # Une panne ou une réclamation n'est jamais de priorité basse
+        "floors": {"panne technique": "normale", "réclamation": "normale"},
     }
 }
 

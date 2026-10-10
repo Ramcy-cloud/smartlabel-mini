@@ -53,9 +53,9 @@ Le modèle tourne **sur votre propre machine**. Il est téléchargé une fois de
 
 L'application est pensée pour une équipe de support client qui reçoit des tickets (emails, formulaires, messages) à répartir. On y accède après une **connexion par email et mot de passe** (voir « Authentification » plus bas). Le travail se fait en trois étapes :
 
-1. **Choisir les catégories de tri.** Un jeu est proposé (« Support client » : facturation, livraison, panne technique, compte et accès, réclamation, autre, avec les priorités urgente / normale / basse). On peut le modifier, créer ses propres jeux et les **enregistrer pour toute l'équipe**.
-2. **Charger les tickets.** Soit en important un **fichier CSV** (la colonne du texte est repérée par son nom : `texte`, `message`, `description`… ; une colonne `id` est facultative), soit en collant les tickets, un par ligne. Maximum 500 tickets à la fois.
-3. **Valider les résultats.** Pour chaque ticket, l'IA **propose** une catégorie et une priorité avec un niveau de confiance. Sous le **seuil de confiance** (75 % par défaut, réglable), le ticket est marqué **« à relire »**. La personne qui trie peut corriger la catégorie ou la priorité, valider ligne par ligne ou d'un clic tous les cas sûrs, puis **exporter le résultat en CSV** (avec la proposition de l'IA, la décision finale et le statut).
+1. **Choisir les catégories de tri.** Un jeu est proposé (« Support client » : facturation, livraison, panne technique, compte et accès, réclamation, autre, avec les priorités urgente / normale / basse, de la plus urgente à la moins urgente). On peut le modifier, créer ses propres jeux et les **enregistrer pour toute l'équipe**.
+2. **Charger les tickets.** Soit en important un **fichier CSV** (la colonne du texte est repérée par son nom : `texte`, `message`, `description`…  ; colonnes facultatives : `id`, `vip` (oui/non) et `anciennete_jours`, le nombre de jours d'attente du ticket), soit en collant les tickets, un par ligne. Maximum 500 tickets à la fois.
+3. **Valider les résultats.** Pour chaque ticket, l'IA **propose** la catégorie avec un niveau de confiance, et la **priorité** est calculée par des **règles lisibles** (survolez le « i » à côté de la priorité pour voir pourquoi). Un ticket est marqué **« à relire »** si la confiance est sous le **seuil** (75 % par défaut, réglable) ou si sa priorité est la plus haute : un humain valide toujours les urgences. La personne qui trie peut corriger la catégorie ou la priorité, valider ligne par ligne ou d'un clic tous les cas sûrs, puis **exporter le résultat en CSV** (avec la proposition de l'IA, la décision finale et le statut).
 
 Principe : **l'IA propose, l'humain décide.** Le pourcentage de confiance sert à concentrer l'attention humaine sur les cas douteux.
 
@@ -80,7 +80,7 @@ L'application est composée de deux services, conteneurisés avec Docker :
 |---|---|---|
 | `POST` | `/api/login` | Vérifie l'email et le mot de passe, renvoie un jeton de session (seule route publique) |
 | `POST` | `/api/predict` | Classe un texte parmi les catégories fournies |
-| `POST` | `/api/triage` | Propose une catégorie (et une priorité, facultative) pour jusqu'à 50 tickets |
+| `POST` | `/api/triage` | Propose une catégorie (IA) et une priorité (règles, avec leurs raisons) pour jusqu'à 50 tickets |
 | `GET` | `/api/label-sets` | Liste les jeux de catégories enregistrés |
 | `PUT` | `/api/label-sets/{nom}` | Crée ou remplace un jeu de catégories (50 jeux maximum) |
 | `DELETE` | `/api/label-sets/{nom}` | Supprime un jeu |
@@ -174,6 +174,19 @@ npm run dev
 
 L'interface est alors disponible sur **http://localhost:5173**.
 
+### Priorité : des règles, pas de l'IA
+
+Un modèle zero-shot devine mal une priorité à partir d'un seul mot comme « urgente » (il a classé en « basse » une double facturation). La priorité est donc calculée par des règles explicites (`backend/app/services/priority.py`), et chaque résultat indique ses raisons :
+
+1. **Signaux d'urgence** dans le texte (français et anglais, sans tenir compte de la casse ni des accents) : urgent, bloqué, hors service, « ne fonctionne plus », perte de ventes ou de données, double prélèvement, fraude, piratage, avocat, mise en demeure, plainte, résiliation, « depuis trois semaines »… Un mot nié (« pas urgent », « mon compte n'est pas bloqué ») ne compte pas.
+2. **Signaux de faible urgence** (« sans urgence », « pour information », « simple question », « suggestion »…), pris en compte seulement s'il n'y a aucun signal d'urgence.
+3. **Rien de particulier** : priorité du milieu de la liste (« normale »).
+4. **Montées d'un cran** : client `vip`, ou ticket en attente depuis 7 jours ou plus (`anciennete_jours`).
+5. **Priorité minimale par catégorie** (réglable dans l'interface) : par exemple, une réclamation n'est jamais « basse ».
+6. **Mots-clés propres à votre activité**, ajoutables par jeu de catégories.
+
+La première priorité de la liste est la plus urgente, la dernière la moins urgente. Ces règles sont simples : elles ne comprennent pas le sens d'une phrase (une ironie, une négation lointaine). Testez-les sur vos tickets et ajoutez vos mots-clés.
+
 ### Authentification
 
 L'application est protégée par un compte partagé par l'équipe (même principe que le projet RAG PDF).
@@ -238,6 +251,7 @@ smartlabel-mini/
 │       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
 │       └── services/
 │           ├── ai_service.py     # Chargement du modèle et prédiction
+│           ├── priority.py       # Priorité par règles explicites
 │           └── label_sets.py     # Jeux de catégories enregistrés
 ├── frontend/
 │   ├── Dockerfile
