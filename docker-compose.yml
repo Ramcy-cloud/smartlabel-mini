@@ -9,6 +9,9 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5175,http://localhost:5173}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+      # Identifiants de connexion : à définir dans un fichier .env à la racine (jamais dans ce fichier)
+      - APP_EMAIL=${APP_EMAIL:-}
+      - APP_PASSWORD=${APP_PASSWORD:-}
     volumes:
       # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
       - huggingface_cache:/root/.cache/huggingface
