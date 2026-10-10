@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import auth_headers
 from app.main import create_app
 from app.services.label_sets import label_set_store
 
@@ -8,7 +9,7 @@ from app.services.label_sets import label_set_store
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(label_set_store, "path", tmp_path / "label_sets.json")
-    return TestClient(create_app())
+    return TestClient(create_app(), headers=auth_headers())
 
 
 def test_triage_returns_category_and_priority(client):

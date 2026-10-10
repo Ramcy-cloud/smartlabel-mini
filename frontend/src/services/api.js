@@ -8,6 +8,48 @@ const apiClient = axios.create({
   },
 });
 
+// Jeton de session : gardé le temps de l'onglet (sessionStorage), jamais dans le code ni dans l'URL
+const TOKEN_KEY = 'smartlabel_token';
+const store = () => {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+};
+export const getToken = () => store()?.getItem(TOKEN_KEY) ?? null;
+const setToken = (token) => store()?.setItem(TOKEN_KEY, token);
+export const clearToken = () => store()?.removeItem(TOKEN_KEY);
+
+let unauthorizedHandler = null;
+// Appelé quand le serveur refuse le jeton (session expirée, backend redémarré)
+export const onUnauthorized = (callback) => {
+  unauthorizedHandler = callback;
+};
+
+apiClient.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Un 401 sans jeton (mauvais mot de passe à la connexion) n'est pas une session expirée
+    if (error.response?.status === 401 && getToken()) {
+      clearToken();
+      unauthorizedHandler?.();
+    }
+    return Promise.reject(error);
+  },
+);
+
+export const login = async (email, password) => {
+  const { data } = await apiClient.post('/login', { email, password });
+  setToken(data.token);
+};
+
 export const predictLabel = async (text, candidateLabels) => {
   try {
     const response = await apiClient.post('/predict', {
