@@ -6,3 +6,4 @@ pydantic
 tiktoken
 sentencepiece
 protobuf
+python-dotenv
