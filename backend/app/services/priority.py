@@ -38,11 +38,35 @@ _URGENT = [re.compile(rf"(?<!\w){p}") for p in URGENT_PATTERNS]
 _LOW = [re.compile(rf"(?<!\w){p}") for p in LOW_PATTERNS]
 
 
+def _fold(text: str) -> tuple[str, list[int]]:
+    """Minuscules, sans accents, ponctuation remplacée par un seul espace.
+
+    Retourne aussi, pour chaque caractère du résultat, sa position dans le texte d'origine :
+    les raisons affichées peuvent ainsi citer le texte réel du ticket (avec ses accents).
+    """
+    out: list[str] = []
+    origin: list[int] = []
+    last_space = True
+    for i, char in enumerate(text):
+        for c in unicodedata.normalize("NFKD", char.casefold()):
+            if unicodedata.combining(c):
+                continue
+            if c.isalnum() or c == "_":
+                out.append(c)
+                origin.append(i)
+                last_space = False
+            elif not last_space:
+                out.append(" ")
+                origin.append(i)
+                last_space = True
+    if out and out[-1] == " ":
+        out.pop()
+        origin.pop()
+    return "".join(out), origin
+
+
 def normalize(text: str) -> str:
-    """Minuscules, sans accents, ponctuation remplacée par des espaces."""
-    text = unicodedata.normalize("NFKD", text.casefold())
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    return re.sub(r"[^\w]+", " ", text).strip()
+    return _fold(text)[0]
 
 
 def _negated(text: str, start: int) -> bool:
@@ -50,13 +74,23 @@ def _negated(text: str, start: int) -> bool:
     return any(word in NEGATORS for word in previous)
 
 
-def _find(patterns, text) -> list[tuple[str, bool]]:
-    """Retourne les signaux trouvés sous la forme (texte trouvé, annulé par une négation)."""
+def _find(patterns, folded: str, origin: list[int], original: str) -> list[tuple[str, bool]]:
+    """Signaux trouvés : (texte d'origine, annulé par une négation)."""
     found = []
     for pattern in patterns:
-        for match in pattern.finditer(text):
-            found.append((match.group(0), _negated(text, match.start())))
+        for match in pattern.finditer(folded):
+            quote = original[origin[match.start()]: origin[match.end() - 1] + 1]
+            found.append((quote, _negated(folded, match.start())))
     return found
+
+
+def _unique(words: list[str]) -> list[str]:
+    seen, result = set(), []
+    for word in words:
+        if word.casefold() not in seen:
+            seen.add(word.casefold())
+            result.append(word)
+    return result
 
 
 def default_index(count: int) -> int:
@@ -75,14 +109,14 @@ def compute_priority(
 ) -> tuple[str, list[str]]:
     """Retourne (priorité, raisons). `priorities` va de la plus urgente à la moins urgente."""
     count = len(priorities)
-    normalized = normalize(text)
+    folded, origin = _fold(text)
     reasons: list[str] = []
 
     custom = [re.compile(rf"(?<!\w){re.escape(normalize(k))}\w*") for k in (extra_keywords or []) if normalize(k)]
-    urgent = [(w, neg) for w, neg in _find(_URGENT + custom, normalized)]
-    real_urgent = sorted({w for w, neg in urgent if not neg})
-    negated_urgent = [w for w, neg in urgent if neg]
-    low = [w for w, neg in _find(_LOW, normalized) if not neg]
+    urgent = _find(_URGENT + custom, folded, origin, text)
+    real_urgent = _unique([w for w, neg in urgent if not neg])
+    negated_urgent = _unique([w for w, neg in urgent if neg])
+    low = _unique([w for w, neg in _find(_LOW, folded, origin, text) if not neg])
 
     if real_urgent:
         index = 0

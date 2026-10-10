@@ -149,3 +149,17 @@ def test_label_set_keeps_keywords_and_floors(client):
     assert client.get("/api/label-sets").json()["IT"]["floors"] == {"it": "haute"}
     bad = {**body, "floors": {"it": "moyenne"}}
     assert client.put("/api/label-sets/IT2", json=bad).status_code == 422
+
+
+def test_reasons_quote_the_original_text_with_accents():
+    _, reasons = compute_priority("Bonjour, j'ai été prélevé deux fois !", P3)
+    assert reasons[0] == "mot-clé d'urgence : prélevé deux fois"
+    _, reasons = compute_priority("Mon compte est BLOQUÉ.", P3)
+    assert reasons[0] == "mot-clé d'urgence : BLOQUÉ"
+    _, reasons = compute_priority("Ce n'est pas urgent", P3)
+    assert reasons[0] == "signal de faible urgence : urgent"
+
+
+def test_punctuation_between_words_does_not_hide_a_signal():
+    assert prio("Mise  en --- demeure") == "urgente"
+    assert prio("") == "normale"
