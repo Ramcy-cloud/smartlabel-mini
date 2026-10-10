@@ -57,7 +57,7 @@ export default function TicketInput({ onLoad }) {
           key: 'paste',
           label: 'Coller des tickets',
           children: (
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space orientation="vertical" style={{ width: '100%' }}>
               <TextArea rows={6} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder={PLACEHOLDER} />
               <Button type="primary" disabled={!pasted.trim()} onClick={() => load(parseTicketsText(pasted))}>
                 Charger les tickets

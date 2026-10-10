@@ -14,7 +14,7 @@ export default function ResultsTable({ rows, threshold, categories, priorities, 
       dataIndex: 'text',
       render: (text) => (
         <Tooltip title={text} placement="topLeft">
-          <div style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</div>
+          <div style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</div>
         </Tooltip>
       ),
     },

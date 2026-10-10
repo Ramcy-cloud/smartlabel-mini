@@ -8,7 +8,7 @@ export default function LabelSetPanel({ sets, current, onSelect, categories, pri
   const [newName, setNewName] = useState('');
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <div>
         <Text strong>Jeu de catégories :</Text>
         <Space.Compact style={{ width: '100%', marginTop: 8 }}>
@@ -68,7 +68,7 @@ export default function LabelSetPanel({ sets, current, onSelect, categories, pri
 
           <div>
             <Text strong>Priorité minimale par catégorie (facultatif) :</Text>
-            <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
+            <Space orientation="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
               {categories.map((category) => (
                 <div key={category} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Text style={{ flex: 1 }}>{category}</Text>

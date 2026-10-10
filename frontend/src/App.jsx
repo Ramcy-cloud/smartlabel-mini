@@ -208,11 +208,11 @@ function App() {
       </Header>
 
       <Content style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <Alert
             type="info"
             showIcon
-            message="L'IA propose, vous décidez."
+            title="L'IA propose, vous décidez."
             description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Aucun texte n'est envoyé hors de votre infrastructure.`}
           />
 
@@ -250,10 +250,10 @@ function App() {
 
           {rows.length > 0 && (
             <Card title="3. Résultats à valider">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                 <Row gutter={[16, 16]} align="middle">
                   <Col xs={12} md={4}><Statistic title="Analysés" value={rows.length} /></Col>
-                  <Col xs={12} md={4}><Statistic title="À relire" value={toReview} valueStyle={toReview ? { color: '#d48806' } : undefined} /></Col>
+                  <Col xs={12} md={4}><Statistic title="À relire" value={toReview} styles={toReview ? { content: { color: '#d48806' } } : undefined} /></Col>
                   <Col xs={12} md={4}><Statistic title="Validés" value={validated} /></Col>
                   <Col xs={12} md={4}><Statistic title="Corrigés" value={corrected} /></Col>
                   <Col xs={24} md={8}>
@@ -269,7 +269,7 @@ function App() {
                   <Text>Afficher seulement les cas à relire</Text>
                 </Space>
 
-                {running && <Alert type="warning" showIcon message="Analyse en cours : le tableau se complète au fur et à mesure." />}
+                {running && <Alert type="warning" showIcon title="Analyse en cours : le tableau se complète au fur et à mesure." />}
 
                 <ResultsTable
                   rows={visibleRows}

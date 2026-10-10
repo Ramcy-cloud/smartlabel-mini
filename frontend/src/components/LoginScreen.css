@@ -73,6 +73,9 @@
 
 .login-form .login-submit {
   margin-top: 8px;
+}
+/* Le vert de marque ne s'applique qu'au bouton actif : l'état désactivé garde le style lisible d'antd */
+.login-form .login-submit:not(:disabled) {
   background: #00a76f;
 }
 .login-form .login-submit:not(:disabled):hover {
