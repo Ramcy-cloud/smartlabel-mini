@@ -15,3 +15,10 @@ _fake_service_module.ai_service = types.SimpleNamespace(
     }
 )
 sys.modules["app.services.ai_service"] = _fake_service_module
+
+
+def auth_headers() -> dict:
+    """En-tête d'authentification valide pour les tests des routes protégées."""
+    from app import auth
+
+    return {"Authorization": f"Bearer {auth.SESSION_TOKEN}"}

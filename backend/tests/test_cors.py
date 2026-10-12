@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import auth_headers
 from app.main import DEFAULT_ALLOWED_ORIGINS, create_app
 
 ALLOWED = "http://localhost:5175"
@@ -21,7 +22,7 @@ def preflight(client, origin):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
-    return TestClient(create_app())
+    return TestClient(create_app(), headers=auth_headers())
 
 
 def test_preflight_from_allowed_origin(client):
@@ -74,7 +75,7 @@ def test_default_origins_are_local_frontend_only(client):
 
 def test_multiple_origins_from_env(monkeypatch):
     monkeypatch.setenv("ALLOWED_ORIGINS", " https://a.example , https://b.example ,,")
-    client = TestClient(create_app())
+    client = TestClient(create_app(), headers=auth_headers())
     for origin in ("https://a.example", "https://b.example"):
         assert preflight(client, origin).headers["access-control-allow-origin"] == origin
     # La valeur par défaut ne s'applique plus quand la variable est définie

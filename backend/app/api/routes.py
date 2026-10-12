@@ -2,6 +2,7 @@ import threading
 
 from fastapi import APIRouter, HTTPException, Path
 from app.services.ai_service import ai_service
+from app.services.priority import compute_priority
 from app.services.label_sets import MAX_LABEL_SETS, TooManyLabelSets, label_set_store
 from app.models.schemas import (
     LabelSet,
@@ -27,7 +28,7 @@ async def predict(request: PredictRequest):
 # Fonction synchrone (pas async) : FastAPI l'exécute dans un thread et ne bloque pas le serveur pendant l'IA
 @router.post("/triage", response_model=TriageResponse)
 def triage(request: TriageRequest):
-    """Propose une catégorie (et une priorité si fournie) pour chaque ticket."""
+    """Propose une catégorie par l'IA, et une priorité par des règles explicites, pour chaque ticket."""
     results = []
     for ticket in request.tickets:
         with _inference_lock:
@@ -39,10 +40,15 @@ def triage(request: TriageRequest):
             category_confidence=category["confidence_score"],
         )
         if request.priorities:
-            with _inference_lock:
-                priority = ai_service.predict_label(ticket.text, request.priorities)
-            item.priority = priority["predicted_label"]
-            item.priority_confidence = priority["confidence_score"]
+            item.priority, item.priority_reasons = compute_priority(
+                ticket.text,
+                request.priorities,
+                category=item.category,
+                extra_keywords=request.urgent_keywords,
+                floors=request.floors,
+                vip=ticket.vip,
+                age_days=ticket.age_days,
+            )
         results.append(item)
     return TriageResponse(results=results)
 
