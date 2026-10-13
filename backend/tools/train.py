@@ -31,24 +31,65 @@ def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", "".join(c for c in folded if not unicodedata.combining(c))).strip("-") or "modele"
 
 
-def train(texts: list[str], labels: list[str], embedder, folds: int = 5, seed: int = 0):
-    """Entraîne la régression logistique. Retourne (classes, coef, intercept, précision en validation croisée)."""
-    import numpy as np
+# Force de régularisation essayée : le meilleur réglage est choisi par validation croisée sur la perte
+# logarithmique, ce qui donne des confiances plus fidèles (une confiance de 80 % ~ 80 % de bonnes réponses)
+REGULARIZATION_CHOICES = [0.5, 1, 2, 5, 10, 20, 50, 100, 200]
+
+
+def fit(features, labels, folds: int = 5, seed: int = 0):
+    """Régression logistique dont la régularisation est choisie par validation croisée (perte logarithmique)."""
     from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import log_loss
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+    classes = sorted(set(labels))
+    splits = StratifiedKFold(n_splits=max(2, min(folds, min(Counter(labels).values()))), shuffle=True, random_state=seed)
+
+    def model(c):
+        return LogisticRegression(C=c, class_weight="balanced", max_iter=5000)
+
+    best_c, best_loss = REGULARIZATION_CHOICES[0], float("inf")
+    for c in REGULARIZATION_CHOICES:
+        probabilities = cross_val_predict(model(c), features, labels, cv=splits, method="predict_proba")
+        loss = log_loss(labels, probabilities, labels=classes)
+        if loss < best_loss:
+            best_c, best_loss = c, loss
+    return model(best_c).fit(features, labels)
+
+
+def train(texts: list[str], labels: list[str], embedder, folds: int = 5, seed: int = 0):
+    """Entraîne le classifieur. Retourne (classes, coef, intercept, exactitude en validation croisée)."""
+    import numpy as np
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
     features = embedder.encode(texts)
     labels_array = np.asarray(labels)
-    model = LogisticRegression(C=2.0, max_iter=2000, class_weight="balanced")
 
     cv_accuracy = None
     smallest = min(Counter(labels).values())
     if smallest >= 2:
-        splits = StratifiedKFold(n_splits=min(folds, smallest), shuffle=True, random_state=seed)
-        predicted = cross_val_predict(model, features, labels_array, cv=splits)
+        # Validation croisée « imbriquée » : le réglage est lui aussi choisi sans voir les tickets testés
+        outer = StratifiedKFold(n_splits=min(folds, smallest), shuffle=True, random_state=seed)
+
+        from sklearn.base import BaseEstimator, ClassifierMixin
+
+        class _Tuned(ClassifierMixin, BaseEstimator):
+            def __init__(self, folds=5, seed=0):
+                self.folds = folds
+                self.seed = seed
+
+            def fit(self, x, y):
+                self.model_ = fit(x, y, self.folds, self.seed)
+                self.classes_ = self.model_.classes_
+                return self
+
+            def predict(self, x):
+                return self.model_.predict(x)
+
+        predicted = cross_val_predict(_Tuned(folds, seed), features, labels_array, cv=outer)
         cv_accuracy = float((predicted == labels_array).mean())
 
-    model.fit(features, labels_array)
+    model = fit(features, labels_array, folds, seed)
     return list(model.classes_), model.coef_, model.intercept_, cv_accuracy
 
 

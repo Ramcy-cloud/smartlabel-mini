@@ -139,9 +139,8 @@ def test_train_creates_a_model_that_matches_scikit_learn(tmp_path):
     classes, coef, intercept, cv = train.train(texts, labels, FakeEmbedder(), folds=3)
     assert classes == sorted(classes) and cv is not None and cv > 0.9
     # L'inférence du serveur (numpy) donne les mêmes probabilités que scikit-learn
-    from sklearn.linear_model import LogisticRegression
-
-    reference = LogisticRegression(C=2.0, max_iter=2000, class_weight="balanced").fit(FakeEmbedder().encode(texts), labels)
+    reference = train.fit(FakeEmbedder().encode(texts), labels, folds=3)
+    assert list(reference.classes_) == classes and reference.coef_ == pytest.approx(coef)
     model = trained_engine.validate_model({"version": 1, "categories": classes, "coef": coef.tolist(), "intercept": intercept.tolist()})
     for text in ["facture prélevé", "colis retard", "bonjour"]:
         vector = FakeEmbedder().encode([text])[0]
@@ -150,11 +149,9 @@ def test_train_creates_a_model_that_matches_scikit_learn(tmp_path):
 
 def test_binary_inference_matches_scikit_learn():
     pytest.importorskip("sklearn")
-    from sklearn.linear_model import LogisticRegression
-
     texts, labels = ["facture prélevé", "colis retard"] * 6, ["a", "b"] * 6
     x = FakeEmbedder().encode(texts)
-    reference = LogisticRegression(C=2.0).fit(x, labels)
+    reference = train.fit(x, labels, folds=3)
     model = trained_engine.validate_model({"version": 1, "categories": list(reference.classes_), "coef": reference.coef_.tolist(), "intercept": reference.intercept_.tolist()})
     assert trained_engine.predict_proba(model, x[0]) == pytest.approx(reference.predict_proba([x[0]])[0], abs=1e-9)
 
