@@ -8,9 +8,11 @@ class ZeroShotService:
         self.classifier = pipeline("zero-shot-classification", model="joeddav/xlm-roberta-large-xnli")
         print("Modèle chargé et prêt !")
 
-    def predict_label(self, text: str, candidate_labels: list[str]) -> dict:
-        # Le modèle évalue le texte par rapport aux labels proposés
-        result = self.classifier(text, candidate_labels)
+    def predict_label(self, text: str, candidate_labels: list[str], hypothesis_template: str | None = None) -> dict:
+        # Le modèle évalue le texte par rapport aux labels proposés.
+        # Le gabarit est la phrase testée pour chaque label (« This example is {}. » par défaut, en anglais).
+        kwargs = {"hypothesis_template": hypothesis_template} if hypothesis_template else {}
+        result = self.classifier(text, candidate_labels, **kwargs)
         
         # On extrait le label gagnant (celui avec le score de confiance le plus élevé)
         return {

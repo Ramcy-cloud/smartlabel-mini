@@ -57,7 +57,7 @@ def test_default_label_set_is_offered(client):
 def test_label_set_save_persist_and_delete(client):
     body = {"categories": ["rh", "it"], "priorities": ["haute", "basse"]}
     assert client.put("/api/label-sets/Mon équipe", json=body).status_code == 200
-    assert client.get("/api/label-sets").json()["Mon équipe"] == {**body, "urgent_keywords": [], "floors": {}}
+    assert client.get("/api/label-sets").json()["Mon équipe"] == {**body, "urgent_keywords": [], "floors": {}, "descriptions": {}}
     assert client.delete("/api/label-sets/Mon équipe").status_code == 204
     assert "Mon équipe" not in client.get("/api/label-sets").json()
     assert client.delete("/api/label-sets/Mon équipe").status_code == 404
