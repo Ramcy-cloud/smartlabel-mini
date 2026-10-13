@@ -4,7 +4,7 @@ import { Button, Input, Popconfirm, Select, Space, Typography } from 'antd';
 const { Text } = Typography;
 
 // Choix et édition des catégories / priorités, avec jeux enregistrés pour l'équipe
-export default function LabelSetPanel({ sets, current, onSelect, categories, priorities, urgentKeywords, floors, onChange, onSave, onDelete, saving }) {
+export default function LabelSetPanel({ sets, current, onSelect, categories, priorities, urgentKeywords, floors, descriptions, onChange, onSave, onDelete, saving }) {
   const [newName, setNewName] = useState('');
 
   return (
@@ -36,6 +36,31 @@ export default function LabelSetPanel({ sets, current, onSelect, categories, pri
           placeholder="Tapez une catégorie puis Entrée"
         />
       </div>
+
+      {categories.length >= 2 && (
+        <div>
+          <Text strong>Description de chaque catégorie (facultatif) :</Text>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Une phrase qui dit ce que la catégorie recouvre aide le modèle à mieux classer.
+            </Text>
+          </div>
+          <Space orientation="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
+            {categories.map((category) => (
+              <div key={category} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Text style={{ width: 130 }} ellipsis={{ tooltip: category }}>{category}</Text>
+                <Input
+                  size="small"
+                  maxLength={200}
+                  placeholder="Ex : problème de facture, de paiement ou de remboursement"
+                  value={descriptions[category] ?? ''}
+                  onChange={(e) => onChange.description(category, e.target.value)}
+                />
+              </div>
+            ))}
+          </Space>
+        </div>
+      )}
 
       <div>
         <Text strong>Priorités, de la plus urgente à la moins urgente (facultatif, au moins 2) :</Text>

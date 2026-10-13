@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 class PredictRequest(BaseModel):
@@ -15,6 +17,8 @@ MAX_LABELS = 20
 MAX_LABEL_CHARS = 100
 MAX_KEYWORDS = 50
 MAX_KEYWORD_CHARS = 60
+MAX_DESCRIPTION_CHARS = 200
+ENGINES = ("zero-shot", "trained", "mistral")
 
 
 def _clean_labels(labels: list[str]) -> list[str]:
@@ -44,6 +48,27 @@ def _clean_keywords(keywords: list[str]) -> list[str]:
     return cleaned
 
 
+def _clean_descriptions(descriptions: dict[str, str]) -> dict[str, str]:
+    cleaned = {}
+    for category, description in descriptions.items():
+        description = description.strip()
+        if len(description) > MAX_DESCRIPTION_CHARS:
+            raise ValueError(f"Une description ne peut pas dépasser {MAX_DESCRIPTION_CHARS} caractères.")
+        if description:
+            cleaned[category] = description
+    return cleaned
+
+
+def _check_descriptions(descriptions: dict[str, str], categories: list[str]) -> None:
+    """Les libellés vus par le modèle (description, sinon nom) doivent rester distincts."""
+    for category in descriptions:
+        if category not in categories:
+            raise ValueError(f"Catégorie inconnue dans les descriptions : {category}")
+    shown = [descriptions.get(c, c).casefold() for c in categories]
+    if len(set(shown)) != len(shown):
+        raise ValueError("Deux catégories ont la même description (ou une description reprend le nom d'une autre catégorie).")
+
+
 def _check_floors(floors: dict[str, str], categories: list[str], priorities: list[str] | None) -> None:
     for category, priority in floors.items():
         if category not in categories:
@@ -65,11 +90,19 @@ class TriageRequest(BaseModel):
     priorities: list[str] | None = Field(default=None, min_length=2, max_length=MAX_LABELS)
     urgent_keywords: list[str] = Field(default_factory=list, max_length=MAX_KEYWORDS)
     floors: dict[str, str] = Field(default_factory=dict, max_length=MAX_LABELS)
+    # Description facultative de chaque catégorie : aide le modèle à comprendre ce qu'elle recouvre
+    descriptions: dict[str, str] = Field(default_factory=dict, max_length=MAX_LABELS)
+    engine: Literal["zero-shot", "trained", "mistral"] = "zero-shot"
 
     @field_validator("categories", "priorities")
     @classmethod
     def clean(cls, labels):
         return None if labels is None else _clean_labels(labels)
+
+    @field_validator("descriptions")
+    @classmethod
+    def clean_descriptions(cls, descriptions):
+        return _clean_descriptions(descriptions)
 
     @field_validator("urgent_keywords")
     @classmethod
@@ -79,6 +112,7 @@ class TriageRequest(BaseModel):
     @model_validator(mode="after")
     def floors_are_consistent(self):
         _check_floors(self.floors, self.categories, self.priorities)
+        _check_descriptions(self.descriptions, self.categories)
         return self
 
 
@@ -89,6 +123,8 @@ class TriageResult(BaseModel):
     category_confidence: float
     priority: str | None = None
     priority_reasons: list[str] = Field(default_factory=list)
+    engine: str = "zero-shot"
+    engine_error: str | None = None  # le moteur n'a pas pu classer ce ticket : à traiter à la main
 
 
 class TriageResponse(BaseModel):
@@ -101,11 +137,17 @@ class LabelSet(BaseModel):
     priorities: list[str] = Field(default_factory=list, max_length=MAX_LABELS)
     urgent_keywords: list[str] = Field(default_factory=list, max_length=MAX_KEYWORDS)
     floors: dict[str, str] = Field(default_factory=dict, max_length=MAX_LABELS)
+    descriptions: dict[str, str] = Field(default_factory=dict, max_length=MAX_LABELS)
 
     @field_validator("categories", "priorities")
     @classmethod
     def clean(cls, labels):
         return _clean_labels(labels)
+
+    @field_validator("descriptions")
+    @classmethod
+    def clean_descriptions(cls, descriptions):
+        return _clean_descriptions(descriptions)
 
     @field_validator("urgent_keywords")
     @classmethod
@@ -117,4 +159,5 @@ class LabelSet(BaseModel):
         if len(self.priorities) == 1:
             raise ValueError("Indiquez au moins deux priorités, ou aucune.")
         _check_floors(self.floors, self.categories, self.priorities)
+        _check_descriptions(self.descriptions, self.categories)
         return self

@@ -12,11 +12,15 @@ services:
       # Identifiants de connexion : à définir dans un fichier .env à la racine (jamais dans ce fichier)
       - APP_EMAIL=${APP_EMAIL:-}
       - APP_PASSWORD=${APP_PASSWORD:-}
+      # Moteur Mistral (cloud) : désactivé tant que la clé est vide. Les tickets quittent alors votre machine.
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - MISTRAL_MODEL=${MISTRAL_MODEL:-mistral-small-latest}
     volumes:
       # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
       - huggingface_cache:/root/.cache/huggingface
-      # Jeux de catégories enregistrés par l'équipe
-      - label_sets_data:/app/data
+      # Données de l'application, visibles sur votre machine dans backend/data :
+      # jeux de catégories enregistrés (label_sets.json) et modèles entraînés (models/*.json)
+      - ./backend/data:/app/data
 
   frontend:
     build: 
@@ -29,4 +33,3 @@ services:
 
 volumes:
   huggingface_cache:
-  label_sets_data:

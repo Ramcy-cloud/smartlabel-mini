@@ -1,7 +1,8 @@
 import threading
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Query
 from app.services.ai_service import ai_service
+from app.services.classifiers import ClassifierError, EngineUnavailable, UnknownEngine, describe_engines, get_engine
 from app.services.priority import compute_priority
 from app.services.label_sets import MAX_LABEL_SETS, TooManyLabelSets, label_set_store
 from app.models.schemas import (
@@ -28,16 +29,35 @@ async def predict(request: PredictRequest):
 # Fonction synchrone (pas async) : FastAPI l'exécute dans un thread et ne bloque pas le serveur pendant l'IA
 @router.post("/triage", response_model=TriageResponse)
 def triage(request: TriageRequest):
-    """Propose une catégorie par l'IA, et une priorité par des règles explicites, pour chaque ticket."""
+    """Propose une catégorie par le moteur choisi, et une priorité par des règles explicites, pour chaque ticket."""
+    try:
+        engine = get_engine(request.engine, request.categories)
+    except UnknownEngine:
+        raise HTTPException(status_code=422, detail="Moteur inconnu.")
+    except EngineUnavailable:
+        raise HTTPException(status_code=409, detail=f"Le moteur « {request.engine} » n'est pas disponible pour ces catégories.")
+
     results = []
     for ticket in request.tickets:
-        with _inference_lock:
-            category = ai_service.predict_label(ticket.text, request.categories)
+        error = None
+        try:
+            if engine.uses_cpu_model:
+                with _inference_lock:
+                    prediction = engine.classify(ticket.text, request.categories, request.descriptions)
+            else:
+                prediction = engine.classify(ticket.text, request.categories, request.descriptions)
+        except ClassifierError as failure:
+            if failure.fatal:
+                raise HTTPException(status_code=502, detail=str(failure))
+            # Ticket non classé : à traiter à la main (confiance nulle, donc « à relire »)
+            error, prediction = str(failure), None
         item = TriageResult(
             id=ticket.id,
             text=ticket.text,
-            category=category["predicted_label"],
-            category_confidence=category["confidence_score"],
+            category=prediction.category if prediction else request.categories[0],
+            category_confidence=prediction.confidence if prediction else 0.0,
+            engine=engine.name,
+            engine_error=error,
         )
         if request.priorities:
             item.priority, item.priority_reasons = compute_priority(
@@ -51,6 +71,12 @@ def triage(request: TriageRequest):
             )
         results.append(item)
     return TriageResponse(results=results)
+
+
+@router.get("/engines")
+def list_engines(categories: list[str] = Query(default=[])):
+    """Moteurs de classification proposés, avec leur disponibilité pour ces catégories."""
+    return describe_engines(categories)
 
 
 @router.get("/label-sets", response_model=dict[str, LabelSet])

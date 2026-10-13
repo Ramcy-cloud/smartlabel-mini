@@ -80,7 +80,8 @@ L'application est composée de deux services, conteneurisés avec Docker :
 |---|---|---|
 | `POST` | `/api/login` | Vérifie l'email et le mot de passe, renvoie un jeton de session (seule route publique) |
 | `POST` | `/api/predict` | Classe un texte parmi les catégories fournies |
-| `POST` | `/api/triage` | Propose une catégorie (IA) et une priorité (règles, avec leurs raisons) pour jusqu'à 50 tickets |
+| `POST` | `/api/triage` | Propose une catégorie (moteur au choix : local, entraîné, Mistral) et une priorité (règles, avec leurs raisons) pour jusqu'à 50 tickets |
+| `GET` | `/api/engines` | Moteurs de classification disponibles pour des catégories données |
 | `GET` | `/api/label-sets` | Liste les jeux de catégories enregistrés |
 | `PUT` | `/api/label-sets/{nom}` | Crée ou remplace un jeu de catégories (50 jeux maximum) |
 | `DELETE` | `/api/label-sets/{nom}` | Supprime un jeu |
@@ -117,7 +118,18 @@ git clone https://github.com/Ramcy-cloud/smartlabel-mini.git
 cd smartlabel-mini
 ```
 
-#### 2. Construire et démarrer les conteneurs
+#### 2. Définir la connexion
+
+Copiez `.env.example` en `.env` **à la racine du projet** (ce fichier est ignoré par Git) et renseignez au minimum :
+
+```
+APP_EMAIL=votre.adresse@exemple.com
+APP_PASSWORD=un-mot-de-passe-long-et-unique
+```
+
+Sans ces deux valeurs, personne ne peut se connecter. Les autres variables sont facultatives (voir `.env.example`).
+
+#### 3. Construire et démarrer les conteneurs
 
 En arrière-plan (mode « détaché ») :
 
@@ -127,14 +139,14 @@ docker compose up -d --build
 
 Le premier lancement prend plusieurs minutes : Docker télécharge les images de base et les dépendances, puis le backend télécharge le modèle d'IA.
 
-#### 3. Ouvrir l'interface
+#### 4. Ouvrir l'interface
 
 - Interface : **http://localhost:5175/** (le port 5175 de la machine est relié au port 5173 du conteneur)
 - API : **http://localhost:8000**
 
 Le frontend appelle l'API à l'adresse `http://127.0.0.1:8000/api` (définie dans `frontend/src/services/api.js`).
 
-#### 4. Commandes utiles
+#### 5. Commandes utiles
 
 - Suivre les journaux (logs) en temps réel :
 
@@ -153,6 +165,18 @@ Le frontend appelle l'API à l'adresse `http://127.0.0.1:8000/api` (définie dan
   ```bash
   docker compose down -v
   ```
+
+  Vos jeux de catégories et vos modèles entraînés sont dans le dossier `backend/data` de votre machine : cette commande ne les supprime pas.
+
+### Utiliser l'application sur votre machine (sans serveur ni hébergeur)
+
+C'est le mode actuel du projet : l'application tourne sur votre ordinateur, avec Docker, et personne d'autre n'y accède.
+
+- **Démarrer / arrêter** : `docker compose up -d` et `docker compose down`, puis ouvrir http://localhost:5175.
+- **Mettre à jour** après une nouvelle version : `git pull`, puis `docker compose up -d --build`.
+- **Sauvegarder vos données** : copiez le dossier `backend/data` (jeux de catégories et modèles entraînés).
+- **Donner accès à d'autres personnes** n'est pas prévu dans ce mode : il faudrait un serveur, du HTTPS et des comptes individuels (voir « Limites connues »).
+- Les images publiées par la CD sur `ghcr.io` ne servent qu'à un futur hébergement : vous n'en avez pas besoin pour travailler en local.
 
 ### Lancement sans Docker
 
@@ -187,6 +211,67 @@ Un modèle zero-shot devine mal une priorité à partir d'un seul mot comme « u
 
 La première priorité de la liste est la plus urgente, la dernière la moins urgente. Ces règles sont simples : elles ne comprennent pas le sens d'une phrase (une ironie, une négation lointaine). Testez-les sur vos tickets et ajoutez vos mots-clés.
 
+### Fiabilité de la catégorie : trois moteurs, deux outils
+
+La catégorie est le point faible d'un modèle « zero-shot » (il n'a jamais vu vos tickets). Trois moteurs sont proposés dans l'interface, et deux outils permettent de mesurer et d'améliorer la qualité.
+
+**Les moteurs** (choisis dans la carte « Tickets à trier »)
+
+| Moteur | Où ça tourne | Quand l'utiliser |
+|---|---|---|
+| **Local (zero-shot)** | votre machine | Par défaut. Ne demande aucune donnée d'entraînement. |
+| **Entraîné sur vos tickets** | votre machine | Dès que vous avez quelques centaines de tickets validés. Le plus fiable sur *vos* catégories. |
+| **Mistral (cloud)** | service externe | Optionnel, désactivé tant qu'aucune clé n'est configurée. **Les tickets quittent votre machine.** |
+
+**1. Décrire les catégories.** Dans « Catégories de tri », une phrase par catégorie (« problème de facture, de paiement, de prélèvement ou de remboursement ») aide le modèle à comprendre ce qu'elle recouvre. Le modèle local teste aussi chaque catégorie avec une phrase en français (`HYPOTHESIS_TEMPLATE`, par défaut « Ce texte concerne : {}. ») au lieu de la phrase anglaise d'origine.
+
+**2. Mesurer avant de faire confiance.** Préparez un CSV de vrais tickets avec leur bonne catégorie (colonnes `texte` et `categorie`, et si vous voulez `priorite`, `vip`, `anciennete_jours`), puis :
+
+```bash
+cd backend
+python -m tools.evaluate mes_tickets.csv --set "Support client"
+```
+
+L'outil affiche l'exactitude globale, la précision et le rappel de chaque catégorie, la matrice de confusion (quelles catégories se confondent), l'exactitude par niveau de confiance et le **seuil de relecture conseillé** pour atteindre la précision visée (`--target 0.9`). Sans ce chiffre, le seuil de 75 % de l'interface n'est qu'un réglage au hasard. Options utiles : `--engine trained|mistral`, `--errors erreurs.csv`, `--no-descriptions`, `--template "..."`.
+
+Un jeu d'**exemple synthétique** de 144 tickets est fourni dans `backend/tools/exemples/tickets_exemple.csv` pour essayer l'outil. Il a été écrit à la main : il ne représente pas vos vrais tickets et ne dit rien de la qualité réelle sur vos données.
+
+**3. Apprendre de vos corrections.** Chaque export CSV garde la proposition de l'IA, votre décision finale et le statut. Les tickets « validé » ou « corrigé » ont été relus par un humain : ils servent à entraîner un classifieur sur vos propres données.
+
+```bash
+cd backend
+pip install -r requirements-tools.txt
+python -m tools.train export_tickets.csv --set "Support client"
+```
+
+L'outil n'utilise que les tickets validés (20 minimum, 2 catégories au moins), mesure l'exactitude en validation croisée et enregistre le modèle en JSON dans `backend/data/models`. Le moteur « Entraîné sur vos tickets » apparaît alors, pour exactement ces catégories. Pour une mesure honnête, évaluez-le sur **d'autres** tickets que ceux de l'entraînement. Réentraînez de temps en temps avec les nouvelles corrections. Le modèle est un fichier JSON, jamais du code exécutable : un fichier modifié ou piégé est simplement refusé.
+
+**4. Mistral (optionnel).** Pour l'activer, ajoutez `MISTRAL_API_KEY` dans `backend/.env` (ou dans le `.env` racine avec Docker), puis redémarrez le backend. Précautions intégrées : une confirmation est demandée dans l'interface avant chaque envoi ; les emails, téléphones, IBAN, numéros de carte et liens sont masqués avant l'envoi (mais pas les noms ni les adresses, vérifiez que votre usage est autorisé) ; le ticket est présenté au modèle comme une donnée à classer, jamais comme une instruction ; la réponse doit être le numéro d'une catégorie de la liste, sinon le ticket est laissé « en erreur » pour traitement manuel ; la clé n'apparaît jamais dans les journaux ni dans les réponses de l'API. La confiance annoncée par Mistral est une estimation du modèle lui-même : mesurez-la avec `tools.evaluate` avant de vous y fier.
+
+**Ce que donnent ces réglages (mesures sur le jeu d'exemple synthétique)**
+
+Ces chiffres viennent des 144 tickets d'exemple, écrits à la main. Ils montrent l'effet des réglages, pas la qualité sur vos tickets : avec si peu de tickets, un écart de quelques points est dans le bruit de la mesure.
+
+Modèle local, 144 tickets :
+
+| Réglage | Exactitude | F1 moyen | À 75 % de confiance : tickets sans relecture / bonnes réponses |
+|---|---|---|---|
+| Noms de catégories, phrase anglaise (réglage d'origine) | 53,5 % | 49,1 % | 25 % / 67 % |
+| Noms de catégories, phrase française | 61,1 % | 59,6 % | 33 % / 85 % |
+| Descriptions, phrase anglaise | 50,0 % | 49,6 % | 29 % / 100 % |
+| **Descriptions, phrase française (réglage par défaut)** | 59,0 % | 60,8 % | 21 % / 100 % |
+
+La phrase en français gagne 6 à 9 points d'exactitude. Les descriptions coûtent environ 2 points d'exactitude mais rendent la confiance bien plus fiable : à 75 %, toutes les réponses étaient justes (contre 85 % sans description). C'est ce qui compte pour décider quoi relire, d'où le choix par défaut.
+
+Moteur entraîné, avec 96 tickets d'entraînement (16 par catégorie), mesuré sur 48 autres tickets jamais vus :
+
+| Moteur | Exactitude | À 75 % de confiance : tickets sans relecture / bonnes réponses |
+|---|---|---|
+| Local (zero-shot) | 62,5 % | 15 % / 100 % |
+| **Entraîné sur 96 tickets** | 81,2 % | 67 % / 91 % |
+
+Avec très peu d'exemples, le moteur entraîné est déjà nettement plus juste, et il laisse passer bien plus de tickets sans relecture. Sur de vrais tickets, avec des centaines d'exemples par catégorie, l'écart devrait se creuser, mais **seule la mesure sur vos données fait foi** (`tools.evaluate`). Attention : ces tickets d'exemple suivent des formulations proches les unes des autres, ce qui avantage un moteur entraîné par rapport à de vrais tickets plus variés.
+
 ### Authentification
 
 L'application est protégée par un compte partagé par l'équipe (même principe que le projet RAG PDF).
@@ -202,7 +287,7 @@ Limites : un seul compte partagé, pas de rôles ni de journal des actions, et l
 - **Limites :** requête de 1 Mo maximum (`413` au-delà), 50 tickets de 5 000 caractères par requête, 20 libellés de 100 caractères par jeu. Les routes d'IA sont limitées par adresse IP (`RATE_LIMIT_PER_MINUTE`, 60 par défaut, `429` au-delà). Une seule prédiction est calculée à la fois : les autres requêtes patientent.
 - **Hôtes acceptés :** `ALLOWED_HOSTS` (noms séparés par des virgules ; par défaut `localhost,127.0.0.1`). À renseigner avec le nom de domaine réel en déploiement.
 - **En-têtes :** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control: no-store` sur l'API. Ajoutez `Strict-Transport-Security` et le HTTPS sur le serveur frontal (proxy) en production.
-- **Données :** les textes des tickets ne sont ni enregistrés ni écrits dans les journaux. Seuls les jeux de catégories sont conservés, dans `backend/data/label_sets.json` (variable `LABEL_SETS_PATH`, volume Docker `label_sets_data`). Un fichier corrompu est mis de côté en `.corrompu` au lieu d'être écrasé.
+- **Données :** les textes des tickets ne sont ni enregistrés ni écrits dans les journaux. Seuls les jeux de catégories sont conservés, dans `backend/data/label_sets.json` (variable `LABEL_SETS_PATH`), avec les modèles entraînés dans `backend/data/models` ; avec Docker, ce dossier de votre machine est monté dans le conteneur. Un fichier corrompu est mis de côté en `.corrompu` au lieu d'être écrasé.
 - **Export CSV :** les cellules qui commencent par `=`, `+`, `-` ou `@` sont neutralisées pour éviter l'exécution de formules dans Excel (« CSV injection »).
 - **Un seul processus :** le verrou des jeux enregistrés et la limitation de débit sont en mémoire ; lancez Uvicorn avec un seul worker.
 
@@ -242,7 +327,9 @@ smartlabel-mini/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── requirements-dev.txt      # Dépendances de test (pytest)
-│   ├── tests/                    # Tests (CORS, triage, sécurité)
+│   ├── requirements-tools.txt    # Dépendances des outils de mesure et d'entraînement
+│   ├── tests/                    # Tests (CORS, triage, sécurité, moteurs, Mistral, outils)
+│   ├── tools/                    # evaluate.py (mesure), train.py (entraînement), exemples/
 │   └── app/
 │       ├── main.py               # Application FastAPI, CORS (ALLOWED_ORIGINS), préfixe /api
 │       ├── auth.py               # Connexion, jeton de session, anti brute-force
@@ -250,7 +337,11 @@ smartlabel-mini/
 │       ├── api/routes.py         # Routes /predict, /triage, /label-sets
 │       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
 │       └── services/
-│           ├── ai_service.py     # Chargement du modèle et prédiction
+│           ├── ai_service.py     # Chargement du modèle zero-shot et prédiction
+│           ├── classifiers.py    # Moteurs de classification (choix, disponibilité)
+│           ├── trained_engine.py # Moteur entraîné sur vos tickets (modèle JSON)
+│           ├── mistral_engine.py # Moteur Mistral optionnel (cloud)
+│           ├── redaction.py      # Masquage des données personnelles avant envoi à Mistral
 │           ├── priority.py       # Priorité par règles explicites
 │           └── label_sets.py     # Jeux de catégories enregistrés
 ├── frontend/
@@ -261,13 +352,13 @@ smartlabel-mini/
 │   ├── public/                   # Icônes
 │   └── src/
 │       ├── App.jsx               # Page principale (catégories, tickets, résultats)
-│       ├── components/           # Connexion, choix des catégories, saisie des tickets, tableau de résultats
+│       ├── components/           # Connexion, catégories, moteur, saisie des tickets, tableau de résultats
 │       ├── csv.js                # Lecture et export CSV
 │       ├── triage.js             # Règles de statut (à relire, corrigé…)
 │       ├── services/api.js       # Appel à l'API
 │       └── *.css                 # Styles
 ├── docker-compose.yml
-├── .env.example                  # Variables d'environnement (ALLOWED_ORIGINS)
+├── .env.example                  # Variables d'environnement (connexion, CORS, Mistral…)
 ├── image_99b8db.png              # Capture d'écran
 └── README.md
 ```
@@ -277,7 +368,8 @@ smartlabel-mini/
 - Authentification minimale : un seul compte partagé, un jeton commun, pas de rôles (voir « Authentification »). Pour un usage multi-utilisateurs, prévoyez des comptes individuels, ou un fournisseur d'identité de l'entreprise (SSO).
 - Pas de traitement en arrière-plan : l'analyse se fait par lots de 10 tickets, page ouverte (environ une à deux secondes par ticket sur processeur). Fermer la page interrompt l'analyse.
 - Les jeux de catégories sont partagés par toutes les personnes connectées (pas de droits par utilisateur).
-- La qualité dépend du modèle zero-shot : sur des catégories proches, elle est moindre qu'un modèle entraîné sur vos propres tickets. Mesurez la précision sur un échantillon de vos tickets avant tout usage réel.
+- La qualité de la catégorie dépend du moteur et de vos données : le modèle local n'a jamais vu vos tickets, le moteur entraîné a besoin de tickets validés, et Mistral envoie les textes à l'extérieur. Mesurez toujours avec `tools.evaluate` sur de vrais tickets avant tout usage réel (voir « Fiabilité de la catégorie »).
+- Les priorités viennent de règles simples : elles ne comprennent pas le sens d'une phrase.
 - Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
 
 ---

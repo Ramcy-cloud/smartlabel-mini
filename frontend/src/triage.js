@@ -10,5 +10,6 @@ export const needsReview = (row, threshold, topPriority) =>
 
 export const rowStatus = (row, threshold, topPriority) => {
   if (row.validated) return isCorrected(row) ? 'corrigé' : 'validé';
+  if (row.engine_error) return 'erreur';
   return needsReview(row, threshold, topPriority) ? 'à relire' : 'sûr';
 };

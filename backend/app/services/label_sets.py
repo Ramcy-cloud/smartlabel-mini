@@ -20,6 +20,15 @@ DEFAULT_SETS = {
         "categories": ["facturation", "livraison", "panne technique", "compte et accès", "réclamation", "autre"],
         "priorities": ["urgente", "normale", "basse"],
         "urgent_keywords": [],
+        # Une description aide le modèle à comprendre ce que recouvre chaque catégorie
+        "descriptions": {
+            "facturation": "problème de facture, de paiement, de prélèvement ou de remboursement",
+            "livraison": "problème de livraison : colis en retard, perdu, endommagé ou incomplet",
+            "panne technique": "panne, bug ou dysfonctionnement d'un produit, d'une application ou d'un site",
+            "compte et accès": "problème de connexion, de mot de passe ou d'accès à un compte",
+            "réclamation": "plainte ou mécontentement d'un client envers l'entreprise ou son service",
+            "autre": "question générale ou demande sans rapport avec les autres catégories",
+        },
         # Une panne ou une réclamation n'est jamais de priorité basse
         "floors": {"panne technique": "normale", "réclamation": "normale"},
     }

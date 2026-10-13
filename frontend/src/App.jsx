@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Layout, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Layout, Modal, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
-import { clearToken, deleteLabelSet, getLabelSets, getToken, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
+import { clearToken, deleteLabelSet, getEngines, getLabelSets, getToken, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
 import { downloadCsv, toCsv } from './csv';
+import EnginePicker from './components/EnginePicker';
 import LabelSetPanel from './components/LabelSetPanel';
 import LoginScreen from './components/LoginScreen';
 import TicketInput from './components/TicketInput';
@@ -25,6 +26,9 @@ function App() {
   const [priorities, setPriorities] = useState([]);
   const [urgentKeywords, setUrgentKeywords] = useState([]);
   const [floors, setFloors] = useState({});
+  const [descriptions, setDescriptions] = useState({});
+  const [engines, setEngines] = useState([]);
+  const [engine, setEngine] = useState('zero-shot');
   const [savingSet, setSavingSet] = useState(false);
 
   const [tickets, setTickets] = useState([]);
@@ -44,6 +48,7 @@ function App() {
     setPriorities(loaded[name]?.priorities ?? []);
     setUrgentKeywords(loaded[name]?.urgent_keywords ?? []);
     setFloors(loaded[name]?.floors ?? {});
+    setDescriptions(loaded[name]?.descriptions ?? {});
   }, []);
 
   const resetWorkspace = useCallback(() => {
@@ -53,6 +58,9 @@ function App() {
     setPriorities([]);
     setUrgentKeywords([]);
     setFloors({});
+    setDescriptions({});
+    setEngines([]);
+    setEngine('zero-shot');
     setTickets([]);
     setRows([]);
   }, []);
@@ -87,6 +95,25 @@ function App() {
   const validFloors = () =>
     Object.fromEntries(Object.entries(floors).filter(([category, priority]) => categories.includes(category) && priorities.includes(priority)));
 
+  // Une description n'a de sens que pour une catégorie présente, et seulement si elle n'est pas vide
+  const validDescriptions = () =>
+    Object.fromEntries(Object.entries(descriptions).filter(([category, text]) => categories.includes(category) && text.trim()));
+
+  const setDescription = (category, text) => setDescriptions((current) => ({ ...current, [category]: text }));
+
+  // Moteurs proposés pour ces catégories (un modèle entraîné ne vaut que pour exactement ses catégories)
+  const categoriesKey = categories.join('|');
+  useEffect(() => {
+    if (!isAuthenticated || categories.length < 2) return;
+    getEngines(categories)
+      .then((list) => {
+        setEngines(list);
+        setEngine((current) => (list.find((e) => e.name === current && e.available) ? current : 'zero-shot'));
+      })
+      .catch(() => setEngines([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoriesKey, isAuthenticated]);
+
   const setFloor = (category, priority) =>
     setFloors((current) => {
       const next = { ...current };
@@ -98,7 +125,7 @@ function App() {
   const handleSaveSet = async (name) => {
     setSavingSet(true);
     try {
-      await saveLabelSet(name, { categories, priorities, urgent_keywords: urgentKeywords, floors: validFloors() });
+      await saveLabelSet(name, { categories, priorities, urgent_keywords: urgentKeywords, floors: validFloors(), descriptions: validDescriptions() });
       const loaded = await getLabelSets();
       setSets(loaded);
       setCurrentSet(name);
@@ -126,10 +153,24 @@ function App() {
 
   const canRun = tickets.length > 0 && categories.length >= 2 && (priorities.length === 0 || priorities.length >= 2);
 
+  // Mistral envoie les textes à un service externe : on demande toujours une confirmation explicite
+  const confirmExternalEngine = () =>
+    new Promise((resolve) =>
+      Modal.confirm({
+        title: 'Envoyer les tickets à Mistral ?',
+        content: `Les textes de ${tickets.length} ticket(s) seront envoyés à un service externe. Les emails, téléphones, IBAN, cartes et liens sont masqués, mais pas les noms ni les adresses.`,
+        okText: 'Envoyer à Mistral',
+        cancelText: 'Annuler',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      }),
+    );
+
   const handleRun = async () => {
+    if (engine === 'mistral' && !(await confirmExternalEngine())) return;
     const usedCategories = [...categories];
     const usedPriorities = [...priorities];
-    const rules = { urgentKeywords: [...urgentKeywords], floors: validFloors() };
+    const rules = { urgentKeywords: [...urgentKeywords], floors: validFloors(), descriptions: validDescriptions(), engine };
     setRunning(true);
     setProgress(0);
     setRows([]);
@@ -187,6 +228,8 @@ function App() {
         ? { priorite: r.priority, priorite_proposee: r.suggestedPriority, raisons_priorite: (r.priority_reasons ?? []).join(' ; ') }
         : {}),
       confiance_categorie: r.category_confidence,
+      moteur: r.engine ?? '',
+      erreur_moteur: r.engine_error ?? '',
       statut: rowStatus(r, t, topPriority),
     }));
     downloadCsv(`tickets-tries-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(data));
@@ -213,7 +256,7 @@ function App() {
             type="info"
             showIcon
             title="L'IA propose, vous décidez."
-            description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Aucun texte n'est envoyé hors de votre infrastructure.`}
+            description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Les moteurs locaux ne font sortir aucun texte de votre machine ; Mistral (optionnel) les envoie à un service externe.`}
           />
 
           <Row gutter={[24, 24]}>
@@ -227,7 +270,8 @@ function App() {
                   priorities={priorities}
                   urgentKeywords={urgentKeywords}
                   floors={floors}
-                  onChange={{ categories: setCategories, priorities: setPriorities, urgentKeywords: setUrgentKeywords, floor: setFloor }}
+                  descriptions={descriptions}
+                  onChange={{ categories: setCategories, priorities: setPriorities, urgentKeywords: setUrgentKeywords, floor: setFloor, description: setDescription }}
                   onSave={handleSaveSet}
                   onDelete={handleDeleteSet}
                   saving={savingSet}
@@ -237,6 +281,7 @@ function App() {
             <Col xs={24} lg={12}>
               <Card title="2. Tickets à trier" style={{ height: '100%' }}>
                 <TicketInput onLoad={(loaded) => { setTickets(loaded); setRows([]); }} />
+                <EnginePicker engines={engines} value={engine} onChange={setEngine} />
                 <Space style={{ marginTop: 8 }} wrap>
                   <Button type="primary" size="large" disabled={!canRun} loading={running} onClick={handleRun}>
                     Analyser {tickets.length ? `${tickets.length} ticket${tickets.length > 1 ? 's' : ''}` : ''}
