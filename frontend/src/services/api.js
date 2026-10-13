@@ -64,16 +64,22 @@ export const predictLabel = async (text, candidateLabels) => {
 };
 
 // Propose une catégorie (et une priorité) pour une liste de tickets
-export const triageTickets = async (tickets, { categories, priorities, urgentKeywords, floors }) => {
+export const triageTickets = async (tickets, { categories, priorities, urgentKeywords, floors, descriptions, engine }) => {
   const response = await apiClient.post('/triage', {
     tickets,
     categories,
     priorities: priorities && priorities.length ? priorities : null,
     urgent_keywords: urgentKeywords ?? [],
     floors: floors ?? {},
+    descriptions: descriptions ?? {},
+    engine: engine ?? 'zero-shot',
   });
   return response.data.results;
 };
+
+// Moteurs de classification proposés pour ces catégories (local, entraîné, Mistral)
+export const getEngines = async (categories) =>
+  (await apiClient.get('/engines', { params: { categories }, paramsSerializer: { indexes: null } })).data;
 
 export const getLabelSets = async () => (await apiClient.get('/label-sets')).data;
 

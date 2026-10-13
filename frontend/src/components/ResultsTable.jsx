@@ -2,7 +2,7 @@ import { Button, Select, Space, Table, Tag, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { rowStatus } from '../triage';
 
-const STATUS_COLOR = { 'validé': 'success', 'corrigé': 'processing', 'à relire': 'warning', 'sûr': 'default' };
+const STATUS_COLOR = { 'validé': 'success', 'corrigé': 'processing', 'à relire': 'warning', 'sûr': 'default', 'erreur': 'error' };
 
 // Tableau des tickets classés : catégorie et priorité modifiables, validation ligne par ligne
 export default function ResultsTable({ rows, threshold, categories, priorities, onUpdate }) {
@@ -69,7 +69,8 @@ export default function ResultsTable({ rows, threshold, categories, priorities, 
       width: 110,
       render: (_, row) => {
         const status = rowStatus(row, threshold, topPriority);
-        return <Tag color={STATUS_COLOR[status]}>{status}</Tag>;
+        const tag = <Tag color={STATUS_COLOR[status]}>{status}</Tag>;
+        return row.engine_error && status === 'erreur' ? <Tooltip title={`${row.engine_error} Classez ce ticket à la main.`}>{tag}</Tooltip> : tag;
       },
     },
     {
