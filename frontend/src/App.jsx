@@ -256,7 +256,7 @@ function App() {
             type="info"
             showIcon
             title="L'IA propose, vous décidez."
-            description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Aucun texte n'est envoyé hors de votre infrastructure.`}
+            description={`L'IA propose la catégorie ; la priorité vient de règles que vous pouvez lire (survolez le « i » à côté de chaque priorité). Sous ${threshold} % de confiance, ou pour la priorité la plus haute, le ticket est marqué « à relire » : vérifiez-le avant de l'utiliser. Les moteurs locaux ne font sortir aucun texte de votre machine ; Mistral (optionnel) les envoie à un service externe.`}
           />
 
           <Row gutter={[24, 24]}>
