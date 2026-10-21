@@ -1,0 +1,16 @@
+# Ce qui ne doit jamais entrer dans l'image : secrets, caches, tests et données locales.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+data/
+tests/
+tools/
+.git
+.gitignore
+Dockerfile
+.dockerignore

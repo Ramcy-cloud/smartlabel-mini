@@ -10,6 +10,17 @@ from app.security import SecurityMiddleware, get_allowed_hosts
 # Origines du frontend local (Docker : 5175, Vite en dev : 5173) utilisées si ALLOWED_ORIGINS est absente
 DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5175", "http://localhost:5173"]
 
+TRUE_VALUES = {"1", "true", "oui", "yes", "on"}
+
+
+def docs_enabled() -> bool:
+    """La documentation interactive (/docs, /openapi.json) n'est servie que si ENABLE_DOCS le demande.
+
+    Elle est publique par construction : la laisser ouverte révèle tout le schéma de l'API
+    (routes, champs, limites) à qui n'est pas connecté. Fermée par défaut.
+    """
+    return os.getenv("ENABLE_DOCS", "").strip().casefold() in TRUE_VALUES
+
 
 def get_allowed_origins() -> list[str]:
     """Lit ALLOWED_ORIGINS (origines séparées par des virgules, espaces ignorés)."""
@@ -22,7 +33,14 @@ def get_allowed_origins() -> list[str]:
 
 def create_app() -> FastAPI:
     auth.warn_if_unconfigured()
-    app = FastAPI(title="SmartLabel-Mini API", description="API IA pour la labellisation de données")
+    documented = docs_enabled()
+    app = FastAPI(
+        title="SmartLabel-Mini API",
+        description="API IA pour la labellisation de données",
+        docs_url="/docs" if documented else None,
+        redoc_url="/redoc" if documented else None,
+        openapi_url="/openapi.json" if documented else None,
+    )
 
     # Les middlewares s'empilent : le dernier ajouté est le plus extérieur.
     # SecurityMiddleware est à l'intérieur de CORS pour que ses refus (413, 429) portent aussi les en-têtes CORS.
@@ -39,7 +57,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_allowed_hosts())
 
-    # /api/login est public ; toutes les autres routes exigent un jeton valide
+    # /api/login est public (/api/logout vérifie lui-même le jeton) ; toutes les autres routes l'exigent
     app.include_router(auth.router, prefix="/api")
     app.include_router(router, prefix="/api", dependencies=[Depends(auth.get_current_token)])
     return app
