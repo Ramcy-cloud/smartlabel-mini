@@ -1,5 +1,6 @@
-# Utilisation d'une image Python légère
-FROM python:3.10-slim
+# Utilisation d'une image Python légère.
+# Python 3.12 (et non 3.10, en fin de vie depuis le 1er octobre 2026 : plus aucun correctif de sécurité).
+FROM python:3.12-slim
 
 # Compte sans privilège : un conteneur qui tourne en root donne des droits root sur l'hôte
 # si un attaquant sort du conteneur. Créé avant l'installation pour profiter du cache de couches.

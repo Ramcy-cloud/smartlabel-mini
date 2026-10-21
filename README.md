@@ -185,7 +185,7 @@ C'est le mode actuel du projet : l'application tourne sur votre ordinateur, avec
 
 ### Lancement sans Docker
 
-Backend (Python 3.10 ou plus récent ; l'image Docker utilise Python 3.10) :
+Backend (Python 3.12 ou plus récent ; l'image Docker utilise Python 3.12. Python 3.10 et 3.11 ne reçoivent plus tous les correctifs de sécurité ou arrivent en fin de vie) :
 
 ```bash
 cd backend
