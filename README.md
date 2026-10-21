@@ -2,7 +2,7 @@
 
 Ce projet sert à **ranger un texte dans une catégorie que vous choisissez vous-même** (par exemple « joie », « colère », « tristesse », « neutre »), grâce à une intelligence artificielle, sans avoir à lui apprendre ces catégories au préalable.
 
-![Démonstration de SmartLabel-Mini](./image_99b8db.png)
+![Démonstration de SmartLabel-Mini](./docs/demo.png)
 
 ---
 
@@ -79,6 +79,7 @@ L'application est composée de deux services, conteneurisés avec Docker :
 | Méthode | Route | Rôle |
 |---|---|---|
 | `POST` | `/api/login` | Vérifie l'email et le mot de passe, renvoie un jeton de session (seule route publique) |
+| `POST` | `/api/logout` | Ferme la session : le jeton est oublié côté serveur et ne vaut plus rien |
 | `POST` | `/api/predict` | Classe un texte parmi les catégories fournies |
 | `POST` | `/api/triage` | Propose une catégorie (moteur au choix : local, entraîné, Mistral) et une priorité (règles, avec leurs raisons) pour jusqu'à 50 tickets |
 | `GET` | `/api/engines` | Moteurs de classification disponibles pour des catégories données |
@@ -105,7 +106,9 @@ Format de la réponse :
 }
 ```
 
-`confidence_score` est le score de la catégorie retenue, entre 0 et 1, arrondi à 4 décimales. La documentation interactive de l'API (générée par FastAPI) est disponible sur **http://localhost:8000/docs**.
+`confidence_score` est le score de la catégorie retenue, entre 0 et 1, arrondi à 4 décimales.
+
+La documentation interactive générée par FastAPI (`/docs`, `/redoc`, `/openapi.json`) est **fermée par défaut** : elle est accessible sans connexion et décrit tout le schéma de l'API. Pour l'ouvrir en développement, mettez `ENABLE_DOCS=1` dans votre `.env`, puis ouvrez **http://localhost:8000/docs**.
 
 ### Lancement avec Docker (recommandé)
 
@@ -141,10 +144,12 @@ Le premier lancement prend plusieurs minutes : Docker télécharge les images de
 
 #### 4. Ouvrir l'interface
 
-- Interface : **http://localhost:5175/** (le port 5175 de la machine est relié au port 5173 du conteneur)
+- Interface : **http://localhost:5175/** (le port 5175 de la machine est relié au port 8080 du conteneur)
 - API : **http://localhost:8000**
 
-Le frontend appelle l'API à l'adresse `http://127.0.0.1:8000/api` (définie dans `frontend/src/services/api.js`).
+Le frontend est **construit** puis servi par nginx, sous un compte sans privilège. L'adresse de l'API est figée au moment de la construction par `VITE_API_BASE_URL` (par défaut `http://127.0.0.1:8000/api`) ; `API_ORIGIN` doit désigner la même origine, car nginx n'autorise les appels réseau de la page que vers celle-ci. Les deux se règlent dans le fichier `.env` à la racine.
+
+Sous Linux, le dossier `backend/data` monté dans le conteneur doit être accessible en écriture par l'utilisateur du conteneur (UID `10001`) : si l'enregistrement d'un jeu de catégories échoue, lancez `sudo chown -R 10001:10001 backend/data`.
 
 #### 5. Commandes utiles
 
@@ -192,7 +197,7 @@ Frontend (Node.js et npm) :
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -277,16 +282,22 @@ Avec très peu d'exemples, le moteur entraîné est déjà nettement plus juste,
 L'application est protégée par un compte partagé par l'équipe (même principe que le projet RAG PDF).
 
 1. Définissez `APP_EMAIL` et `APP_PASSWORD` : dans un fichier `.env` à la racine pour Docker, ou dans `backend/.env` sans Docker (modèle dans `.env.example`). **Si l'une des deux est vide, personne ne peut se connecter.** Choisissez un mot de passe long et unique ; ne le mettez jamais dans le code ni dans un fichier suivi par Git.
-2. `POST /api/login` vérifie les identifiants (comparaison à temps constant, adresse email insensible à la casse) et renvoie un jeton de session. Après 5 échecs depuis une même adresse IP, les connexions sont refusées pendant une minute.
-3. Toutes les autres routes `/api` exigent l'en-tête `Authorization: Bearer <jeton>` (`401` sinon). Le jeton change à chaque redémarrage du backend : il faut alors se reconnecter. Le navigateur le garde le temps de l'onglet (`sessionStorage`).
+2. `POST /api/login` vérifie les identifiants (comparaison à temps constant, adresse email insensible à la casse) et renvoie **un jeton propre à cette connexion** (256 bits aléatoires), accompagné de sa durée de validité (`expires_in`). Après 5 échecs depuis une même adresse IP, les connexions sont refusées pendant une minute.
+3. Toutes les autres routes `/api` exigent l'en-tête `Authorization: Bearer <jeton>` (`401` sinon). Le navigateur garde le jeton le temps de l'onglet (`sessionStorage`), jamais dans l'URL.
+4. Un jeton cesse d'être accepté dans trois cas : au bout de `SESSION_TTL_HOURS` (12 h par défaut, ramené entre 1 et 168), à la **déconnexion** (`POST /api/logout` l'oublie côté serveur, donc un jeton intercepté ne sert plus à rien) et au redémarrage du backend. Le nombre de sessions vivantes est plafonné à 50 : au-delà, la plus ancienne est oubliée.
 
-Limites : un seul compte partagé, pas de rôles ni de journal des actions, et le jeton est unique pour tous les utilisateurs (la déconnexion l'efface du navigateur mais ne l'invalide pas côté serveur). Servez toujours l'application en **HTTPS** hors de votre machine : sans cela, mot de passe et jeton circulent en clair.
+Limites : un seul compte partagé, pas de rôles ni de journal des actions. Servez toujours l'application en **HTTPS** hors de votre machine : sans cela, mot de passe et jeton circulent en clair.
 
 ### Sécurité de l'API
 
-- **Limites :** requête de 1 Mo maximum (`413` au-delà), 50 tickets de 5 000 caractères par requête, 20 libellés de 100 caractères par jeu. Les routes d'IA sont limitées par adresse IP (`RATE_LIMIT_PER_MINUTE`, 60 par défaut, `429` au-delà). Une seule prédiction est calculée à la fois : les autres requêtes patientent.
+- **Limites :** requête de 1 Mo maximum (`413` au-delà), 50 tickets de 5 000 caractères par requête, 20 libellés de 100 caractères par jeu, et les mêmes limites sur `/api/predict` : le modèle évalue le texte une fois par libellé, donc sans plafond un seul appel suffit à saturer le serveur. Les routes d'IA sont limitées par adresse IP (`RATE_LIMIT_PER_MINUTE`, 60 par défaut, `429` au-delà). Une seule prédiction est calculée à la fois, sur les deux routes : les autres requêtes patientent.
+- **Taille annoncée :** un corps envoyé « en morceaux » (`Transfer-Encoding: chunked`) n'annonce pas sa taille et serait donc lu en entier avant toute vérification. `POST`, `PUT` et `PATCH` exigent un `Content-Length` exploitable (`411` sinon).
+- **Documentation fermée :** `/docs`, `/redoc` et `/openapi.json` ne sont servis que si `ENABLE_DOCS` le demande : ces pages sont publiques par nature et décrivent toute l'API.
 - **Hôtes acceptés :** `ALLOWED_HOSTS` (noms séparés par des virgules ; par défaut `localhost,127.0.0.1`). À renseigner avec le nom de domaine réel en déploiement.
-- **En-têtes :** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control: no-store` sur l'API. Ajoutez `Strict-Transport-Security` et le HTTPS sur le serveur frontal (proxy) en production.
+- **En-têtes :** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Content-Security-Policy` (`default-src 'none'` : une réponse d'API n'a besoin d'aucune ressource externe) et `Cache-Control: no-store` sur l'API. nginx pose ses propres en-têtes sur la page et ses scripts (voir `frontend/nginx.conf.template`). Ajoutez `Strict-Transport-Security` et le HTTPS sur le serveur frontal (proxy) en production.
+- **Mémoire bornée :** les compteurs par adresse IP (débit, tentatives de connexion) et le cache des modèles entraînés oublient les entrées inactives et sont plafonnés : un trafic venu de milliers d'adresses ne fait pas grossir la mémoire du serveur sans fin.
+- **Conteneurs sans privilège :** les deux images tournent sous un utilisateur dédié, jamais `root`. Le frontend est servi en version construite par nginx, et non par le serveur de développement de Vite, qui sert les sources et n'est pas fait pour être exposé.
+- **Dépendances :** `backend/requirements.txt` fixe une version minimale par paquet, avec la faille qu'elle corrige en commentaire. À vérifier avant chaque mise à jour : `pip-audit -r requirements.txt` et `npm audit` dans `frontend/`.
 - **Données :** les textes des tickets ne sont ni enregistrés ni écrits dans les journaux. Seuls les jeux de catégories sont conservés, dans `backend/data/label_sets.json` (variable `LABEL_SETS_PATH`), avec les modèles entraînés dans `backend/data/models` ; avec Docker, ce dossier de votre machine est monté dans le conteneur. Un fichier corrompu est mis de côté en `.corrompu` au lieu d'être écrasé.
 - **Export CSV :** les cellules qui commencent par `=`, `+`, `-` ou `@` sont neutralisées pour éviter l'exécution de formules dans Excel (« CSV injection »).
 - **Un seul processus :** le verrou des jeux enregistrés et la limitation de débit sont en mémoire ; lancez Uvicorn avec un seul worker.
@@ -309,7 +320,9 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Les tests vérifient la configuration CORS. Le vrai modèle d'IA n'est pas chargé : il est remplacé par un faux.
+205 tests couvrent le tri et les priorités, les trois moteurs, les outils de mesure et d'entraînement, la configuration CORS, l'authentification, le cycle de vie des sessions et les protections de l'API (limites de taille et de débit, documentation fermée, bornes mémoire). Le vrai modèle d'IA n'est pas chargé : il est remplacé par un faux (`tests/conftest.py`), donc rien n'est téléchargé.
+
+Côté frontend : `npm run lint` et `npm run build`. Pour les failles connues des dépendances : `npm audit` dans `frontend/`, et `pip install pip-audit && pip-audit -r requirements.txt` dans `backend/`.
 
 ### CI/CD
 
@@ -325,14 +338,14 @@ Les workflows s'appuient sur les modèles partagés de [`Ramcy-cloud/ci-template
 smartlabel-mini/
 ├── backend/
 │   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── requirements.txt          # Versions minimales (failles connues en commentaire)
 │   ├── requirements-dev.txt      # Dépendances de test (pytest)
 │   ├── requirements-tools.txt    # Dépendances des outils de mesure et d'entraînement
-│   ├── tests/                    # Tests (CORS, triage, sécurité, moteurs, Mistral, outils)
+│   ├── tests/                    # Tests (CORS, triage, sécurité, sessions, moteurs, Mistral, outils)
 │   ├── tools/                    # evaluate.py (mesure), train.py (entraînement), exemples/
 │   └── app/
 │       ├── main.py               # Application FastAPI, CORS (ALLOWED_ORIGINS), préfixe /api
-│       ├── auth.py               # Connexion, jeton de session, anti brute-force
+│       ├── auth.py               # Connexion, sessions (durée, révocation), anti brute-force
 │       ├── security.py           # Limites de taille et de débit, en-têtes, hôtes
 │       ├── api/routes.py         # Routes /predict, /triage, /label-sets
 │       ├── models/schemas.py     # Formats de requête et de réponse (Pydantic)
@@ -345,7 +358,8 @@ smartlabel-mini/
 │           ├── priority.py       # Priorité par règles explicites
 │           └── label_sets.py     # Jeux de catégories enregistrés
 ├── frontend/
-│   ├── Dockerfile
+│   ├── Dockerfile                # Construction puis nginx sans privilège (pas le serveur Vite)
+│   ├── nginx.conf.template       # En-têtes de sécurité et cache des fichiers servis
 │   ├── package.json
 │   ├── index.html
 │   ├── vite.config.js
@@ -358,19 +372,19 @@ smartlabel-mini/
 │       ├── services/api.js       # Appel à l'API
 │       └── *.css                 # Styles
 ├── docker-compose.yml
-├── .env.example                  # Variables d'environnement (connexion, CORS, Mistral…)
-├── image_99b8db.png              # Capture d'écran
+├── .env.example                  # Variables d'environnement (connexion, CORS, sessions, Mistral…)
+├── docs/demo.png                 # Capture d'écran
 └── README.md
 ```
 
 ### Limites connues
 
-- Authentification minimale : un seul compte partagé, un jeton commun, pas de rôles (voir « Authentification »). Pour un usage multi-utilisateurs, prévoyez des comptes individuels, ou un fournisseur d'identité de l'entreprise (SSO).
+- Authentification minimale : un seul compte partagé, pas de rôles ni de journal des actions (voir « Authentification »). Pour un usage multi-utilisateurs, prévoyez des comptes individuels, ou un fournisseur d'identité de l'entreprise (SSO).
 - Pas de traitement en arrière-plan : l'analyse se fait par lots de 10 tickets, page ouverte (environ une à deux secondes par ticket sur processeur). Fermer la page interrompt l'analyse.
 - Les jeux de catégories sont partagés par toutes les personnes connectées (pas de droits par utilisateur).
 - La qualité de la catégorie dépend du moteur et de vos données : le modèle local n'a jamais vu vos tickets, le moteur entraîné a besoin de tickets validés, et Mistral envoie les textes à l'extérieur. Mesurez toujours avec `tools.evaluate` sur de vrais tickets avant tout usage réel (voir « Fiabilité de la catégorie »).
 - Les priorités viennent de règles simples : elles ne comprennent pas le sens d'une phrase.
-- Le frontend Docker tourne avec le serveur de développement de Vite (`npm run dev`), pas avec une version compilée pour la production.
+- Les sessions sont gardées en mémoire du processus : avec plusieurs workers Uvicorn, un jeton émis par l'un serait refusé par les autres. Lancez un seul worker (voir « Sécurité de l'API »).
 
 ---
 
