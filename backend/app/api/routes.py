@@ -1,7 +1,6 @@
 import threading
 
 from fastapi import APIRouter, HTTPException, Path, Query
-from app.services.ai_service import ai_service
 from app.services.classifiers import ClassifierError, EngineUnavailable, UnknownEngine, describe_engines, get_engine
 from app.services.priority import compute_priority
 from app.services.label_sets import MAX_LABEL_SETS, TooManyLabelSets, label_set_store
@@ -19,11 +18,17 @@ router = APIRouter()
 # Le modèle tourne sur le processeur : une seule inférence à la fois, les autres requêtes patientent
 _inference_lock = threading.Lock()
 
+# Fonction synchrone (pas async) : l'inférence bloque le thread qui l'exécute, et FastAPI
+# n'exécute une route synchrone que dans un thread du pool, jamais dans la boucle d'événements.
 @router.post("/predict", response_model=PredictResponse)
-async def predict(request: PredictRequest):
+def predict(request: PredictRequest):
+    # Chargé à l'usage, comme dans classifiers.py : le modèle est lourd et n'est pas utile
+    # au démarrage ni aux moteurs « trained » et « mistral ».
+    from app.services.ai_service import ai_service
+
     # Appel direct au service d'IA avec le texte et la liste des labels possibles
-    result = ai_service.predict_label(request.text, request.candidate_labels)
-    return result
+    with _inference_lock:  # le modèle tourne sur le processeur : une seule inférence à la fois
+        return ai_service.predict_label(request.text, request.candidate_labels)
 
 
 # Fonction synchrone (pas async) : FastAPI l'exécute dans un thread et ne bloque pas le serveur pendant l'IA

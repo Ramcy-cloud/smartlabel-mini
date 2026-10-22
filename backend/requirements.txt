@@ -1,12 +1,18 @@
-fastapi
-uvicorn
-transformers
-torch
-pydantic
-tiktoken
-sentencepiece
-protobuf
-python-dotenv
-httpx
-numpy
-sentence-transformers
+# Versions minimales : en dessous, le paquet porte une faille connue (référence PYSEC/GHSA en commentaire)
+# ou une incompatibilité avec le code. Vérifier avant chaque mise à jour :
+#   pip install pip-audit && pip-audit -r requirements.txt
+fastapi>=0.139
+uvicorn>=0.50
+transformers>=5.13
+# torch < 2.13 : corruption mémoire via torch.jit.script, torch.lstm_cell et le chargeur
+# « weights_only » utilisé pour lire les poids d'un modèle (PYSEC-2025-194/195, PYSEC-2026-2286)
+torch>=2.13
+pydantic>=2.11
+sentencepiece>=0.2.1   # tokeniseur de xlm-roberta
+# protobuf < 6.33.5 : déni de service par récursion dans json_format.ParseDict (PYSEC-2026-1805)
+protobuf>=6.33.5
+# python-dotenv < 1.2.2 : écriture de fichier arbitraire via un lien symbolique (PYSEC-2026-2270)
+python-dotenv>=1.2.2
+httpx>=0.28.1
+numpy>=2.3            # exige Python >= 3.11, d'où l'image python:3.12-slim
+sentence-transformers>=5.6

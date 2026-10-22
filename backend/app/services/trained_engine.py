@@ -22,6 +22,9 @@ DEFAULT_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
 EMBEDDER_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MAX_MODEL_BYTES = 20 * 1024 * 1024
 MODEL_VERSION = 1
+# Le cache est indexé par (chemin, date de modification, taille) : chaque réentraînement ajoute une entrée.
+# Sans plafond, un dossier réécrit souvent ferait croître la mémoire du serveur sans fin.
+MAX_CACHED_MODELS = 20
 
 log = logging.getLogger("uvicorn.error")
 
@@ -111,6 +114,15 @@ def save_model(path: Path, *, categories, coef, intercept, n_samples, class_coun
 
 
 _cache: dict[tuple, dict | None] = {}  # (chemin, date de modification, taille) -> modèle validé, ou None si invalide
+_cache_lock = threading.Lock()
+
+
+def _remember(key: tuple, value: dict | None) -> None:
+    """Mémorise un modèle chargé et oublie les plus anciennes entrées au-delà du plafond."""
+    with _cache_lock:
+        _cache[key] = value
+        while len(_cache) > MAX_CACHED_MODELS:
+            del _cache[next(iter(_cache))]  # un dictionnaire garde l'ordre d'insertion
 
 
 def _load_one(path: Path) -> dict | None:
@@ -120,11 +132,11 @@ def _load_one(path: Path) -> dict | None:
         try:
             if stat.st_size > MAX_MODEL_BYTES:
                 raise InvalidModel("fichier trop volumineux")
-            _cache[key] = {**validate_model(json.loads(path.read_text(encoding="utf-8"))), "_file": path.name}
+            _remember(key, {**validate_model(json.loads(path.read_text(encoding="utf-8"))), "_file": path.name})
         except (OSError, ValueError) as error:  # JSON invalide, structure invalide, fichier illisible
             log.warning("Modèle entraîné ignoré (%s) : %s", path.name, error)
-            _cache[key] = None
-    return _cache[key]
+            _remember(key, None)
+    return _cache.get(key)
 
 
 def load_models(directory: Path | None = None) -> list[dict]:

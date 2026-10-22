@@ -1,11 +1,12 @@
 import logging
 import os
 import secrets
+import threading
 import time
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 # Charge backend/.env s'il existe (APP_EMAIL / APP_PASSWORD)
@@ -14,15 +15,29 @@ load_dotenv()
 APP_EMAIL = os.getenv("APP_EMAIL", "")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
-# Jeton de session régénéré à chaque démarrage du backend : un redémarrage force une reconnexion.
-SESSION_TOKEN = secrets.token_hex(32)
-
 # Anti brute-force : verrouillage temporaire par IP après plusieurs échecs (mémoire, un seul processus)
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 60
+MAX_TRACKED_LOGIN_CLIENTS = 10_000  # borne la mémoire face à des tentatives venues de milliers d'adresses
 _failed_logins: dict[str, list[float]] = defaultdict(list)
+_logins_lock = threading.Lock()  # la route de connexion tourne dans un pool de threads
+
+# Sessions : un jeton par connexion, oublié à l'expiration, à la déconnexion et au redémarrage du backend.
+DEFAULT_SESSION_TTL_HOURS = 12
+MAX_SESSIONS = 50  # au-delà, la session la plus ancienne est oubliée
+_sessions: dict[str, float] = {}  # jeton -> instant d'expiration (horloge monotone)
+_sessions_lock = threading.Lock()
 
 router = APIRouter()
+
+
+def session_ttl_seconds() -> int:
+    """Durée de validité d'une session, en secondes (SESSION_TTL_HOURS, entre 1 h et 7 jours)."""
+    try:
+        hours = int(os.getenv("SESSION_TTL_HOURS", str(DEFAULT_SESSION_TTL_HOURS)))
+    except ValueError:
+        hours = DEFAULT_SESSION_TTL_HOURS
+    return min(max(hours, 1), 24 * 7) * 3600
 
 
 def is_configured() -> bool:
@@ -53,13 +68,59 @@ def verify_credentials(email: str, password: str) -> bool:
     return email_ok and password_ok
 
 
+# ----------------------------------------------------------------------------- sessions
+def _drop_expired(now: float) -> None:
+    for token in [t for t, expiry in _sessions.items() if expiry <= now]:
+        del _sessions[token]
+
+
+def issue_token() -> str:
+    """Crée une session et retourne son jeton (256 bits aléatoires, jamais dérivé du mot de passe)."""
+    token = secrets.token_urlsafe(32)
+    now = time.monotonic()
+    with _sessions_lock:
+        _drop_expired(now)
+        while len(_sessions) >= MAX_SESSIONS:
+            del _sessions[min(_sessions, key=_sessions.__getitem__)]
+        _sessions[token] = now + session_ttl_seconds()
+    return token
+
+
+def is_valid_token(token: str) -> bool:
+    now = time.monotonic()
+    with _sessions_lock:
+        _drop_expired(now)
+        # Comparaison à temps constant avec chaque session vivante : un jeton proche n'est pas plus lent
+        return any(_same(token, live) for live in _sessions)
+
+
+def revoke_token(token: str) -> None:
+    with _sessions_lock:
+        for live in [t for t in _sessions if _same(token, t)]:
+            del _sessions[live]
+
+
+def clear_sessions() -> None:
+    """Oublie toutes les sessions (utilisé par les tests)."""
+    with _sessions_lock:
+        _sessions.clear()
+
+
+# ----------------------------------------------------------------------------- connexion
+def _forget_idle_login_clients(now: float) -> None:
+    for client in [c for c, times in _failed_logins.items() if not times or now - times[-1] >= LOGIN_LOCKOUT_SECONDS]:
+        del _failed_logins[client]
+
+
 def check_login_rate_limit(client_id: str) -> None:
     now = time.time()
-    recent = [t for t in _failed_logins[client_id] if now - t < LOGIN_LOCKOUT_SECONDS]
-    if recent:
-        _failed_logins[client_id] = recent
-    else:
-        _failed_logins.pop(client_id, None)
+    with _logins_lock:
+        _forget_idle_login_clients(now)
+        recent = [t for t in _failed_logins[client_id] if now - t < LOGIN_LOCKOUT_SECONDS]
+        if recent:
+            _failed_logins[client_id] = recent
+        else:
+            _failed_logins.pop(client_id, None)
     if len(recent) >= MAX_LOGIN_ATTEMPTS:
         raise HTTPException(
             status_code=429,
@@ -69,11 +130,15 @@ def check_login_rate_limit(client_id: str) -> None:
 
 
 def record_failed_login(client_id: str) -> None:
-    _failed_logins[client_id].append(time.time())
+    with _logins_lock:
+        if client_id not in _failed_logins and len(_failed_logins) >= MAX_TRACKED_LOGIN_CLIENTS:
+            return  # trop d'adresses suivies : on ne mémorise plus, la limite de débit prend le relais
+        _failed_logins[client_id].append(time.time())
 
 
 def reset_login_attempts(client_id: str) -> None:
-    _failed_logins.pop(client_id, None)
+    with _logins_lock:
+        _failed_logins.pop(client_id, None)
 
 
 def get_current_token(authorization: str | None = Header(default=None)) -> str:
@@ -81,7 +146,7 @@ def get_current_token(authorization: str | None = Header(default=None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentification requise.")
     token = authorization.removeprefix("Bearer ").strip()
-    if not _same(token, SESSION_TOKEN):
+    if not is_valid_token(token):
         raise HTTPException(status_code=401, detail="Session invalide ou expirée.")
     return token
 
@@ -104,4 +169,11 @@ def login(request: LoginRequest, http_request: Request):
         record_failed_login(client_id)
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect.")
     reset_login_attempts(client_id)
-    return {"token": SESSION_TOKEN}
+    return {"token": issue_token(), "expires_in": session_ttl_seconds()}
+
+
+@router.post("/logout", status_code=204)
+def logout(token: str = Depends(get_current_token)):
+    """Oublie la session côté serveur : le jeton devient inutilisable, même s'il a été intercepté."""
+    revoke_token(token)
+    return Response(status_code=204)

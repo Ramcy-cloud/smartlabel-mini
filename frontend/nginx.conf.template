@@ -1,0 +1,42 @@
+# Modèle traité au démarrage du conteneur : ${API_ORIGIN} est remplacé par la variable d'environnement.
+server {
+    listen       8080;
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # Ne pas annoncer la version de nginx dans les réponses ni les pages d'erreur
+    server_tokens off;
+
+    gzip             on;
+    gzip_types       text/css application/javascript image/svg+xml application/json;
+    gzip_min_length  1024;
+
+    # En-têtes de sécurité de la page et de ses scripts. Le backend pose les siens sur /api,
+    # mais c'est nginx qui sert le HTML et le JavaScript : sans ces en-têtes, la page n'est pas protégée.
+    # Ils sont déclarés ici et nulle part ailleurs : un « add_header » dans un bloc location
+    # remplacerait ceux du bloc server au lieu de s'y ajouter.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options        "DENY" always;
+    add_header Referrer-Policy        "no-referrer" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    # style-src autorise les styles en ligne : Ant Design injecte ses feuilles de style à l'exécution.
+    # connect-src n'ouvre que l'origine du backend : aucune autre destination réseau n'est possible.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${API_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" always;
+
+    # Les noms des fichiers construits contiennent une empreinte : leur contenu ne change jamais.
+    # Seul « expires » est utilisé, pour ne pas écraser les en-têtes de sécurité ci-dessus.
+    location /assets/ {
+        expires 1y;
+    }
+
+    # La page d'entrée n'est pas mise en cache, sinon un ancien script reste chargé après une livraison
+    location = /index.html {
+        expires -1;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}

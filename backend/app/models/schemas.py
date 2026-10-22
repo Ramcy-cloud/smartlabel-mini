@@ -2,15 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-class PredictRequest(BaseModel):
-    text: str
-    candidate_labels: list[str]
-
-class PredictResponse(BaseModel):
-    text: str
-    predicted_label: str
-    confidence_score: float
-
 MAX_TICKET_CHARS = 5000
 MAX_TICKETS_PER_REQUEST = 50
 MAX_LABELS = 20
@@ -75,6 +66,24 @@ def _check_floors(floors: dict[str, str], categories: list[str], priorities: lis
             raise ValueError(f"Catégorie inconnue dans les priorités minimales : {category}")
         if not priorities or priority not in priorities:
             raise ValueError(f"Priorité inconnue dans les priorités minimales : {priority}")
+
+
+class PredictRequest(BaseModel):
+    # Mêmes limites que le tri : sans elles, un seul appel peut demander une inférence sans fin
+    # (le modèle évalue le texte une fois par libellé proposé).
+    text: str = Field(min_length=1, max_length=MAX_TICKET_CHARS)
+    candidate_labels: list[str] = Field(min_length=2, max_length=MAX_LABELS)
+
+    @field_validator("candidate_labels")
+    @classmethod
+    def clean(cls, labels):
+        return _clean_labels(labels)
+
+
+class PredictResponse(BaseModel):
+    text: str
+    predicted_label: str
+    confidence_score: float
 
 
 class Ticket(BaseModel):
