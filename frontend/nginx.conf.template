@@ -10,7 +10,11 @@ server {
     server_tokens off;
 
     gzip             on;
-    gzip_types       text/css application/javascript image/svg+xml application/json;
+    # Les deux types du JavaScript sont listés : selon la version de nginx, un fichier .js est
+    # servi en application/javascript ou en text/javascript, et le bundle (le plus gros fichier
+    # servi) partirait non compressé si le type effectif manquait à cette liste.
+    # text/html n'y figure pas : nginx le compresse toujours, le mentionner déclenche un avertissement.
+    gzip_types       text/css text/javascript application/javascript image/svg+xml application/json;
     gzip_min_length  1024;
 
     # En-têtes de sécurité de la page et de ses scripts. Le backend pose les siens sur /api,
