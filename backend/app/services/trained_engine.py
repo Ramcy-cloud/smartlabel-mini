@@ -117,26 +117,32 @@ _cache: dict[tuple, dict | None] = {}  # (chemin, date de modification, taille) 
 _cache_lock = threading.Lock()
 
 
-def _remember(key: tuple, value: dict | None) -> None:
-    """Mémorise un modèle chargé et oublie les plus anciennes entrées au-delà du plafond."""
+def _remember(key: tuple, value: dict | None) -> dict | None:
+    """Mémorise un modèle chargé, oublie les plus anciennes entrées au-delà du plafond, et
+    retourne la valeur mémorisée : la relire dans le cache exposerait à une éviction concurrente,
+    qui ferait disparaître un modèle valide du tri sans trace."""
     with _cache_lock:
         _cache[key] = value
         while len(_cache) > MAX_CACHED_MODELS:
             del _cache[next(iter(_cache))]  # un dictionnaire garde l'ordre d'insertion
+    return value
 
 
 def _load_one(path: Path) -> dict | None:
     stat = path.stat()
     key = (str(path), stat.st_mtime_ns, stat.st_size)
-    if key not in _cache:
-        try:
-            if stat.st_size > MAX_MODEL_BYTES:
-                raise InvalidModel("fichier trop volumineux")
-            _remember(key, {**validate_model(json.loads(path.read_text(encoding="utf-8"))), "_file": path.name})
-        except (OSError, ValueError) as error:  # JSON invalide, structure invalide, fichier illisible
-            log.warning("Modèle entraîné ignoré (%s) : %s", path.name, error)
-            _remember(key, None)
-    return _cache.get(key)
+    with _cache_lock:
+        if key in _cache:
+            return _cache[key]
+    # Au-delà de MAX_CACHED_MODELS fichiers, le cache se renouvelle sans cesse et chaque
+    # fichier est relu et revalidé à chaque requête : c'est lent, mais jamais faux.
+    try:
+        if stat.st_size > MAX_MODEL_BYTES:
+            raise InvalidModel("fichier trop volumineux")
+        return _remember(key, {**validate_model(json.loads(path.read_text(encoding="utf-8"))), "_file": path.name})
+    except (OSError, ValueError) as error:  # JSON invalide, structure invalide, fichier illisible
+        log.warning("Modèle entraîné ignoré (%s) : %s", path.name, error)
+        return _remember(key, None)
 
 
 def load_models(directory: Path | None = None) -> list[dict]:
