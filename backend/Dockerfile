@@ -18,9 +18,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copie du reste du code source
 COPY ./app ./app
 
-# Dossier des données (jeux de catégories enregistrés, modèles entraînés), écrit par l'application.
-# Il est habituellement monté depuis l'hôte : voir le README si les écritures sont refusées.
-RUN mkdir -p /app/data && chown -R 10001:10001 /app
+# Dossiers écrits par l'application : les données (jeux de catégories, modèles entraînés) et le
+# cache du modèle téléchargé. Tous deux reçoivent un volume : le cache DOIT exister et appartenir
+# à l'utilisateur ici, sinon Docker crée son point de montage en root et le téléchargement du
+# modèle échoue (l'appartenance n'est pas héritée de /home/app).
+# Voir le README si les écritures du dossier de données sont refusées.
+RUN mkdir -p /app/data /home/app/.cache/huggingface && chown -R 10001:10001 /app /home/app
 
 # Le cache Hugging Face est écrit dans le dossier personnel de l'utilisateur
 ENV HOME=/home/app
