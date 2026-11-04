@@ -129,10 +129,19 @@ def check_login_rate_limit(client_id: str) -> None:
         )
 
 
+def _forget_least_recent_login_client() -> None:
+    """Oublie l'adresse vue le plus anciennement, les entrées vides d'abord."""
+    oldest = min(_failed_logins, key=lambda c: _failed_logins[c][-1] if _failed_logins[c] else 0.0)
+    del _failed_logins[oldest]
+
+
 def record_failed_login(client_id: str) -> None:
     with _logins_lock:
+        # À saturation on évince, on ne renonce pas à mémoriser : sans trace de ses échecs, une
+        # nouvelle adresse ne serait plus jamais verrouillée, et la seule protection contre la
+        # force brute sur le mot de passe partagé céderait précisément sous la charge d'une attaque.
         if client_id not in _failed_logins and len(_failed_logins) >= MAX_TRACKED_LOGIN_CLIENTS:
-            return  # trop d'adresses suivies : on ne mémorise plus, la limite de débit prend le relais
+            _forget_least_recent_login_client()
         _failed_logins[client_id].append(time.time())
 
 

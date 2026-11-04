@@ -25,6 +25,15 @@ export const getToken = () => store()?.getItem(TOKEN_KEY) ?? null;
 const setToken = (token) => store()?.setItem(TOKEN_KEY, token);
 export const clearToken = () => store()?.removeItem(TOKEN_KEY);
 
+// Délai de la déconnexion : court, car elle ne doit jamais retenir l'utilisateur sur un écran
+// connecté. Les autres appels n'ont pas de délai : un lot de tickets peut légitimement prendre
+// plusieurs dizaines de secondes sur processeur, et l'interrompre annulerait l'analyse.
+const LOGOUT_TIMEOUT_MS = 5000;
+
+// Marqueur posé sur la requête de déconnexion : un 401 y est normal si la session a déjà expiré,
+// et ne doit pas faire afficher « Session expirée » pour une action volontaire.
+const EXPECTED_401 = 'smartlabelExpected401';
+
 let unauthorizedHandler = null;
 // Appelé quand le serveur refuse le jeton (session expirée, backend redémarré)
 export const onUnauthorized = (callback) => {
@@ -41,7 +50,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     // Un 401 sans jeton (mauvais mot de passe à la connexion) n'est pas une session expirée
-    if (error.response?.status === 401 && getToken()) {
+    if (error.response?.status === 401 && getToken() && !error.config?.[EXPECTED_401]) {
       clearToken();
       unauthorizedHandler?.();
     }
@@ -58,7 +67,9 @@ export const login = async (email, password) => {
 // Le jeton local est effacé dans tous les cas, y compris si le backend ne répond pas.
 export const logout = async () => {
   try {
-    if (getToken()) await apiClient.post('/logout');
+    if (getToken()) {
+      await apiClient.post('/logout', null, { timeout: LOGOUT_TIMEOUT_MS, [EXPECTED_401]: true });
+    }
   } catch {
     // La session sera de toute façon refusée ou expirera : rien à signaler à l'utilisateur
   } finally {

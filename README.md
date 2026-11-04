@@ -300,7 +300,8 @@ Limites : un seul compte partagé, pas de rôles ni de journal des actions. Serv
 - **Dépendances :** `backend/requirements.txt` fixe une version minimale par paquet, avec la faille qu'elle corrige en commentaire. À vérifier avant chaque mise à jour : `pip-audit -r requirements.txt` et `npm audit` dans `frontend/`.
 - **Données :** les textes des tickets ne sont ni enregistrés ni écrits dans les journaux. Seuls les jeux de catégories sont conservés, dans `backend/data/label_sets.json` (variable `LABEL_SETS_PATH`), avec les modèles entraînés dans `backend/data/models` ; avec Docker, ce dossier de votre machine est monté dans le conteneur. Un fichier corrompu est mis de côté en `.corrompu` au lieu d'être écrasé.
 - **Export CSV :** les cellules qui commencent par `=`, `+`, `-` ou `@` sont neutralisées pour éviter l'exécution de formules dans Excel (« CSV injection »).
-- **Un seul processus :** le verrou des jeux enregistrés et la limitation de débit sont en mémoire ; lancez Uvicorn avec un seul worker.
+- **Un seul processus :** le verrou des jeux enregistrés, la limitation de débit et les sessions sont en mémoire ; lancez Uvicorn avec un seul worker. Avec plusieurs workers, un jeton émis par l'un serait refusé par les autres.
+- **Une inférence à la fois :** une requête d'IA occupe un thread du serveur pendant toute son attente du verrou d'inférence. Si beaucoup de requêtes d'IA arrivent ensemble, les autres routes (connexion, jeux de catégories) attendent derrière elles. La limite par adresse IP (`RATE_LIMIT_PER_MINUTE`) est ce qui borne ce risque : ne la retirez pas.
 
 ### Configuration : origines autorisées (CORS)
 

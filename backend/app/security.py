@@ -57,8 +57,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         now = time.monotonic()
         with self._lock:
             self._forget_idle_clients(now)
+            # À saturation on évince l'adresse vue le plus anciennement. Refuser l'arrivant
+            # transformerait la borne mémoire en déni de service : ce middleware tourne avant
+            # l'authentification, donc des requêtes sans jeton suffisent à remplir la table.
             if client not in self._hits and len(self._hits) >= MAX_TRACKED_CLIENTS:
-                return True  # trop d'adresses suivies : on refuse plutôt que de laisser la mémoire croître
+                oldest = min(self._hits, key=lambda a: self._hits[a][-1] if self._hits[a] else 0.0)
+                del self._hits[oldest]
             hits = self._hits[client]
             while hits and now - hits[0] > RATE_WINDOW_SECONDS:
                 hits.popleft()
@@ -87,21 +91,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
         return None
 
-    async def dispatch(self, request, call_next):
-        refusal = self._body_refusal(request)
-        if refusal is not None:
-            return refusal
-
-        if request.method == "POST" and request.url.path in RATE_LIMITED_PATHS:
-            client = request.client.host if request.client else "inconnu"
-            if self._too_many(client):
-                return JSONResponse(
-                    {"detail": "Trop de requêtes, réessayez dans une minute."},
-                    status_code=429,
-                    headers={"Retry-After": str(RATE_WINDOW_SECONDS)},
-                )
-
-        response = await call_next(request)
+    @staticmethod
+    def _secure(request, response):
+        """Pose les en-têtes de sécurité. Appelée aussi sur les refus : une réponse 411, 413 ou 429
+        reste une réponse de l'API : sans ces en-têtes, son corps peut être interprété comme un autre
+        type par le navigateur, ou gardé en cache par un intermédiaire."""
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -110,3 +104,19 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    async def dispatch(self, request, call_next):
+        refusal = self._body_refusal(request)
+        if refusal is not None:
+            return self._secure(request, refusal)
+
+        if request.method == "POST" and request.url.path in RATE_LIMITED_PATHS:
+            client = request.client.host if request.client else "inconnu"
+            if self._too_many(client):
+                return self._secure(request, JSONResponse(
+                    {"detail": "Trop de requêtes, réessayez dans une minute."},
+                    status_code=429,
+                    headers={"Retry-After": str(RATE_WINDOW_SECONDS)},
+                ))
+
+        return self._secure(request, await call_next(request))

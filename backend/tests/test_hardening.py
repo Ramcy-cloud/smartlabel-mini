@@ -1,7 +1,8 @@
 """Protections vérifiées ici : taille du corps non annoncée, surface publique de l'API, bornes mémoire."""
-import time
+import json
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers
@@ -95,13 +96,24 @@ def test_idle_clients_are_forgotten_by_the_rate_limiter():
     assert len(middleware._hits) == 1
 
 
-def test_rate_limiter_refuses_new_clients_beyond_its_capacity(monkeypatch):
+def test_rate_limiter_forgets_the_least_recently_seen_client_at_capacity(monkeypatch):
+    """Refuser l'arrivant ferait d'une borne mémoire un déni de service : ce middleware tourne
+    avant l'authentification, donc des requêtes sans jeton suffisent à remplir la table."""
     monkeypatch.setattr(security, "MAX_TRACKED_CLIENTS", 3)
     middleware = SecurityMiddleware(app=None, rate_limit=5)
     assert [middleware._too_many(f"10.0.0.{i}") for i in range(3)] == [False, False, False]
-    assert middleware._too_many("10.0.0.99") is True
-    # Une adresse déjà suivie continue d'être servie
-    assert middleware._too_many("10.0.0.0") is False
+
+    assert middleware._too_many("10.0.0.99") is False  # l'arrivant est servi, pas refusé
+    assert len(middleware._hits) == 3  # la table reste bornée
+    assert "10.0.0.0" not in middleware._hits  # l'adresse vue le plus anciennement est oubliée
+    assert "10.0.0.99" in middleware._hits
+
+
+def test_rate_limiter_still_refuses_a_client_over_its_quota(monkeypatch):
+    """L'éviction ne doit pas ouvrir une porte : la limite par adresse s'applique toujours."""
+    monkeypatch.setattr(security, "MAX_TRACKED_CLIENTS", 3)
+    middleware = SecurityMiddleware(app=None, rate_limit=2)
+    assert [middleware._too_many("10.0.0.1") for _ in range(4)] == [False, False, True, True]
 
 
 def test_failed_logins_of_idle_clients_are_forgotten():
@@ -114,27 +126,73 @@ def test_failed_logins_of_idle_clients_are_forgotten():
     assert list(auth._failed_logins) == []
 
 
-def test_failed_logins_stop_being_recorded_beyond_capacity(monkeypatch):
+def test_failed_logins_are_evicted_not_ignored_beyond_capacity(monkeypatch):
+    """Renoncer à mémoriser priverait toute nouvelle adresse de verrouillage : la seule
+    protection contre la force brute céderait justement sous la charge d'une attaque."""
     auth._failed_logins.clear()
     monkeypatch.setattr(auth, "MAX_TRACKED_LOGIN_CLIENTS", 3)
     for i in range(10):
         auth.record_failed_login(f"10.0.0.{i}")
-    assert len(auth._failed_logins) == 3
+    assert len(auth._failed_logins) == 3  # la table reste bornée
+    # Ce sont les adresses vues le plus récemment qui restent suivies
+    assert set(auth._failed_logins) == {"10.0.0.7", "10.0.0.8", "10.0.0.9"}
+    auth._failed_logins.clear()
+
+
+def test_a_new_client_is_still_locked_out_when_the_table_is_full(monkeypatch):
+    auth._failed_logins.clear()
+    monkeypatch.setattr(auth, "MAX_TRACKED_LOGIN_CLIENTS", 3)
+    for i in range(3):
+        auth.record_failed_login(f"10.0.0.{i}")
+    # Une adresse inconnue arrive alors que la table est pleine : ses échecs comptent quand même
+    for _ in range(auth.MAX_LOGIN_ATTEMPTS):
+        auth.record_failed_login("10.0.9.9")
+    with pytest.raises(HTTPException) as refus:
+        auth.check_login_rate_limit("10.0.9.9")
+    assert refus.value.status_code == 429
     auth._failed_logins.clear()
 
 
 def test_trained_model_cache_does_not_grow_without_bound(tmp_path, monkeypatch):
-    """Le cache des modèles entraînés est indexé par (chemin, date, taille) : il doit rester borné."""
+    """Le cache est indexé par (chemin, date, taille) : chaque réentraînement ajoute une entrée.
+    Le plafond est abaissé pour que le test échoue si l'éviction disparaît."""
     from app.services import trained_engine
 
     monkeypatch.setenv("MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(trained_engine, "MAX_CACHED_MODELS", 3)
     trained_engine._cache.clear()
     path = tmp_path / "m.json"
-    for i in range(5):
-        path.write_text('{"version": 0}', encoding="utf-8")
-        time.sleep(0.01)
+    keys = []
+    for size in range(1, 9):  # une taille différente à chaque fois, donc une nouvelle clé
+        path.write_text('{"version": 0}' + " " * size, encoding="utf-8")
         trained_engine.load_models()
-    assert len(trained_engine._cache) <= trained_engine.MAX_CACHED_MODELS
+        keys.append((str(path), path.stat().st_mtime_ns, path.stat().st_size))
+    assert len(trained_engine._cache) == 3
+    assert keys[-1] in trained_engine._cache  # la dernière lecture est mémorisée
+    assert keys[0] not in trained_engine._cache  # la plus ancienne est oubliée
+    trained_engine._cache.clear()
+
+
+def test_a_valid_model_survives_an_eviction_of_the_cache(tmp_path, monkeypatch):
+    """_load_one lisait le cache hors de son verrou : une éviction concurrente pouvait lui faire
+    retourner None, et un modèle valide disparaissait du tri sans trace ni journal."""
+    from app.services import trained_engine
+
+    monkeypatch.setattr(trained_engine, "MAX_CACHED_MODELS", 1)
+    trained_engine._cache.clear()
+    model = {
+        "version": trained_engine.MODEL_VERSION,
+        "name": "essai",
+        "categories": ["a", "b"],
+        "coef": [[0.1, 0.2]],
+        "intercept": [0.0],
+    }
+    for name in ("m1.json", "m2.json"):
+        (tmp_path / name).write_text(json.dumps(model), encoding="utf-8")
+    # Deux fichiers pour un cache d'une seule entrée : chaque chargement évince l'autre
+    for _ in range(3):
+        assert len(trained_engine.load_models(tmp_path)) == 2
+    trained_engine._cache.clear()
 
 
 # --------------------------------------------------------------------- limites de /predict
@@ -185,3 +243,37 @@ def test_the_heavy_model_is_not_imported_at_startup():
     source = pathlib.Path(routes.__file__).read_text(encoding="utf-8")
     header = source.split("router = APIRouter()")[0]
     assert "ai_service" not in header
+
+
+# --------------------------------------------------------------------- en-têtes sur les refus
+# Le corps est construit dans le test et non passé en paramètre : pytest met la valeur dans
+# l'identifiant du test, et un corps d'1 Mo dépasse la taille maximale d'une variable
+# d'environnement sous Windows (PYTEST_CURRENT_TEST).
+@pytest.mark.parametrize("case,expected", [("corps trop gros", 413), ("taille non annoncée", 411)])
+def test_refusals_carry_the_security_headers(client, case, expected):
+    """Un 411 ou un 413 reste une réponse de l'API : le README annonce ces en-têtes partout."""
+    if expected == 413:
+        extra_headers, content = {}, b"x" * (MAX_BODY_BYTES + 1)
+    else:
+        extra_headers, content = {"Content-Length": "abc"}, b"{}"
+    response = client.post(
+        "/api/triage", headers={"Content-Type": "application/json", **extra_headers}, content=content
+    )
+    assert response.status_code == expected
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+
+
+def test_the_rate_limit_refusal_carries_the_security_headers(monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "1")
+    limited = TestClient(create_app(), headers=auth_headers())
+    assert limited.post("/api/triage", json=BODY).status_code == 200
+    response = limited.post("/api/triage", json=BODY)
+    assert response.status_code == 429
+    assert response.headers["retry-after"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
