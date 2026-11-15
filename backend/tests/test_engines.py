@@ -187,6 +187,29 @@ def test_bad_files_are_ignored_and_never_executed(client, tmp_path, caplog):
     assert [m["name"] for m in found] == ["bon"]
 
 
+def test_a_model_file_that_vanished_is_ignored_not_raised(tmp_path, caplog):
+    """Un « python -m tools.train » lancé serveur allumé peut faire disparaître un fichier entre le
+    parcours du dossier et sa lecture. Le stat() était hors du try prévu pour ça : l'erreur
+    remontait en 500 sur /api/triage et /api/engines au lieu d'être un avertissement."""
+    disparu = tmp_path / "jamais-ecrit.json"
+    with caplog.at_level("WARNING"):
+        assert trained_engine._load_one(disparu) is None
+    assert "jamais-ecrit.json" in caplog.text
+
+
+def test_a_directory_keeps_loading_when_one_file_vanishes(tmp_path, monkeypatch):
+    """load_models filtre les None : un fichier manquant n'empêche pas de charger les autres."""
+    write_model(tmp_path, name="bon")
+    models = tmp_path / "models"
+    real_glob = type(models).glob
+
+    def glob_with_a_ghost(self, pattern):
+        return [*real_glob(self, pattern), models / "fantome.json"]
+
+    monkeypatch.setattr(type(models), "glob", glob_with_a_ghost)
+    assert [m["name"] for m in trained_engine.load_models(models)] == ["bon"]
+
+
 def test_oversized_model_files_are_ignored(tmp_path, monkeypatch):
     write_model(tmp_path, name="gros")
     monkeypatch.setattr(trained_engine, "MAX_MODEL_BYTES", 10)

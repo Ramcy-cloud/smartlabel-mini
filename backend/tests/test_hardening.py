@@ -1,4 +1,5 @@
 """Protections vérifiées ici : taille du corps non annoncée, surface publique de l'API, bornes mémoire."""
+import contextlib
 import json
 
 import pytest
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from conftest import auth_headers
 from app import auth, security
+from app.api import routes
 from app.main import create_app
 from app.security import MAX_BODY_BYTES, SecurityMiddleware
 
@@ -262,6 +264,64 @@ def test_the_heavy_model_is_not_imported_at_startup():
     source = pathlib.Path(routes.__file__).read_text(encoding="utf-8")
     header = source.split("router = APIRouter()")[0]
     assert "ai_service" not in header
+
+
+# --------------------------------------------------------------------- file d'inférence
+@contextlib.contextmanager
+def queue_full():
+    """Occupe toutes les places de la file d'inférence, et les rend ensuite."""
+    held = 0
+    try:
+        while routes._inference_slots.acquire(blocking=False):
+            held += 1
+        assert held == routes.MAX_WAITING_INFERENCES
+        yield
+    finally:
+        for _ in range(held):
+            routes._inference_slots.release()
+
+
+@pytest.mark.parametrize(
+    "path,body",
+    [("/api/triage", BODY), ("/api/predict", {"text": "colis en retard", "candidate_labels": ["a", "b"]})],
+)
+def test_a_full_inference_queue_is_refused_immediately(client, path, body):
+    """Toutes les routes étant synchrones, Starlette les exécute dans un pool de 40 threads. Sans
+    cette borne, 40 requêtes d'IA en vol occupaient les 40 threads à attendre le verrou et plus
+    aucune route ne répondait, /api/login compris. Le refus doit donc arriver sans prendre de place."""
+    with queue_full():
+        response = client.post(path, json=body)
+    assert response.status_code == 503
+    assert response.headers["retry-after"]
+
+
+def test_the_queue_frees_up_again_after_the_refusals(client):
+    with queue_full():
+        assert client.post("/api/triage", json=BODY).status_code == 503
+    # Les places sont rendues : le service reprend sans redémarrage
+    assert client.post("/api/triage", json=BODY).status_code == 200
+
+
+def test_the_queue_refusal_carries_the_security_headers(client):
+    with queue_full():
+        response = client.post("/api/triage", json=BODY)
+    assert response.status_code == 503
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["cache-control"] == "no-store"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+
+
+def test_a_refused_request_has_not_classified_anything(client):
+    """Une place est prise pour tout le lot, avant la première inférence : le refus ne doit jamais
+    tomber au milieu d'un lot à moitié analysé."""
+    with queue_full():
+        response = client.post(
+            "/api/triage",
+            json={"tickets": [{"text": f"ticket {i}"} for i in range(5)], "categories": ["a", "b"]},
+        )
+    assert response.status_code == 503
+    assert "results" not in response.json()
 
 
 # --------------------------------------------------------------------- en-têtes sur les refus
