@@ -3,7 +3,7 @@ import os
 import secrets
 import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
@@ -24,8 +24,10 @@ _logins_lock = threading.Lock()  # la route de connexion tourne dans un pool de 
 
 # Sessions : un jeton par connexion, oublié à l'expiration, à la déconnexion et au redémarrage du backend.
 DEFAULT_SESSION_TTL_HOURS = 12
-MAX_SESSIONS = 50  # au-delà, la session la plus ancienne est oubliée
-_sessions: dict[str, float] = {}  # jeton -> instant d'expiration (horloge monotone)
+MAX_SESSIONS = 50  # au-delà, la session la moins récemment utilisée est oubliée
+# jeton -> instant d'expiration (horloge monotone). L'ordre du dictionnaire est celui du dernier
+# usage, de la session la plus ancienne à la plus récente : c'est ce qui rend l'éviction LRU.
+_sessions: OrderedDict[str, float] = OrderedDict()
 _sessions_lock = threading.Lock()
 
 router = APIRouter()
@@ -80,8 +82,11 @@ def issue_token() -> str:
     now = time.monotonic()
     with _sessions_lock:
         _drop_expired(now)
+        # Éviction LRU : la première clé est la session la moins récemment utilisée. Évincer la
+        # plus proche de l'expiration reviendrait, toutes les sessions ayant la même durée, à
+        # évincer la plus anciennement émise — donc à couper un utilisateur encore actif.
         while len(_sessions) >= MAX_SESSIONS:
-            del _sessions[min(_sessions, key=_sessions.__getitem__)]
+            _sessions.popitem(last=False)
         _sessions[token] = now + session_ttl_seconds()
     return token
 
@@ -91,7 +96,12 @@ def is_valid_token(token: str) -> bool:
     with _sessions_lock:
         _drop_expired(now)
         # Comparaison à temps constant avec chaque session vivante : un jeton proche n'est pas plus lent
-        return any(_same(token, live) for live in _sessions)
+        matched = next((live for live in _sessions if _same(token, live)), None)
+        if matched is None:
+            return False
+        # Session utilisée : elle repasse en queue, donc elle n'est plus la prochaine évincée
+        _sessions.move_to_end(matched)
+        return True
 
 
 def revoke_token(token: str) -> None:
@@ -113,7 +123,10 @@ def _forget_idle_login_clients(now: float) -> None:
 
 
 def check_login_rate_limit(client_id: str) -> None:
-    now = time.time()
+    # Horloge monotone, comme les sessions : un recul de l'horloge murale (correction NTP, reprise
+    # d'une machine virtuelle) rendrait « now - t » négatif, donc la fenêtre ne se viderait jamais
+    # et un utilisateur resterait verrouillé le temps du saut au lieu d'une minute.
+    now = time.monotonic()
     with _logins_lock:
         _forget_idle_login_clients(now)
         recent = [t for t in _failed_logins[client_id] if now - t < LOGIN_LOCKOUT_SECONDS]
@@ -142,7 +155,7 @@ def record_failed_login(client_id: str) -> None:
         # force brute sur le mot de passe partagé céderait précisément sous la charge d'une attaque.
         if client_id not in _failed_logins and len(_failed_logins) >= MAX_TRACKED_LOGIN_CLIENTS:
             _forget_least_recent_login_client()
-        _failed_logins[client_id].append(time.time())
+        _failed_logins[client_id].append(time.monotonic())
 
 
 def reset_login_attempts(client_id: str) -> None:

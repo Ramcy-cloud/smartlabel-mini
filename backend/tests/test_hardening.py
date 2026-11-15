@@ -53,6 +53,25 @@ def test_methods_without_body_are_not_affected(client, method, path):
     assert getattr(client, method)(path).status_code in (200, 404)
 
 
+@pytest.mark.parametrize("method,path", [("GET", "/api/label-sets"), ("DELETE", "/api/label-sets/x")])
+def test_oversized_body_is_refused_whatever_the_method(client, method, path):
+    """Rien n'empêche d'attacher un corps à un GET ou à un DELETE. Ne contrôler la taille que sur
+    les méthodes censées en porter ferait de la méthode annoncée un contournement de la limite."""
+    response = client.request(
+        method,
+        path,
+        content=b"x" * (MAX_BODY_BYTES + 1),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+
+
+@pytest.mark.parametrize("method,path", [("GET", "/api/label-sets"), ("DELETE", "/api/label-sets/x")])
+def test_methods_without_body_do_not_have_to_announce_a_length(client, method, path):
+    """Le 411 ne vise que les méthodes à corps : il ne doit pas gêner un GET ou un DELETE ordinaire."""
+    assert client.request(method, path).status_code in (200, 404)
+
+
 def test_a_normal_request_still_passes(client):
     assert client.post("/api/triage", json=BODY).status_code == 200
 

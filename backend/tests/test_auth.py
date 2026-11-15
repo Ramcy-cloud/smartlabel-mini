@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -76,6 +78,34 @@ def test_lockout_after_repeated_failures(client):
     res = login(client, EMAIL, PASSWORD)
     assert res.status_code == 429
     assert "retry-after" in res.headers
+
+
+def test_failed_logins_are_timed_on_the_monotonic_clock(client):
+    """Les compteurs d'échec sont datés sur l'horloge monotone, pas sur l'horloge murale.
+
+    Avec time.time(), un recul de l'horloge murale (correction NTP, reprise d'une machine virtuelle)
+    rendait « now - t » négatif : la fenêtre ne se vidait plus et le verrouillage durait le temps du
+    saut au lieu d'une minute, l'entrée restant en mémoire jusqu'à ce que l'horloge rattrape."""
+    before = time.monotonic()
+    assert login(client, EMAIL, "mauvais").status_code == 401
+    after = time.monotonic()
+
+    recorded = auth._failed_logins[next(iter(auth._failed_logins))]
+    assert len(recorded) == 1
+    # Une date d'horloge murale (≈ 1,7 milliard) ne peut pas tomber dans cet intervalle
+    assert before <= recorded[0] <= after
+
+
+def test_lockout_is_lifted_once_the_window_has_passed(client):
+    for _ in range(auth.MAX_LOGIN_ATTEMPTS):
+        assert login(client, EMAIL, "mauvais").status_code == 401
+    assert login(client, EMAIL, PASSWORD).status_code == 429
+
+    # Les échecs datent désormais, sur l'horloge monotone, d'un peu plus que la fenêtre
+    client_id = next(iter(auth._failed_logins))
+    stale = time.monotonic() - auth.LOGIN_LOCKOUT_SECONDS - 1
+    auth._failed_logins[client_id] = [stale] * auth.MAX_LOGIN_ATTEMPTS
+    assert login(client, EMAIL, PASSWORD).status_code == 200
 
 
 def test_login_input_sizes_are_limited(client):

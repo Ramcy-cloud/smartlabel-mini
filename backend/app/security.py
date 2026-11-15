@@ -78,17 +78,19 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         Un corps envoyé « en morceaux » (Transfer-Encoding: chunked) n'annonce pas sa taille : il serait
         lu en entier avant toute vérification, et la limite ne servirait à rien. On exige donc un
         Content-Length exploitable sur les méthodes qui portent un corps.
+
+        La limite de taille, elle, vaut pour toutes les méthodes : rien n'empêche d'attacher un corps
+        à un GET ou à un DELETE, et le laisser passer sans contrôle parce que la méthode n'est pas
+        censée en porter reviendrait à offrir un contournement de la limite.
         """
-        if request.method not in BODY_METHODS:
-            return None
         length = request.headers.get("content-length")
-        if length is None or not length.isdigit():
+        if length is not None and length.isdigit() and int(length) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
+        if request.method in BODY_METHODS and (length is None or not length.isdigit()):
             return JSONResponse(
                 {"detail": "La taille du corps de la requête doit être annoncée (Content-Length)."},
                 status_code=411,
             )
-        if int(length) > MAX_BODY_BYTES:
-            return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
         return None
 
     @staticmethod
