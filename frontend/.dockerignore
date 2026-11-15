@@ -1,0 +1,16 @@
+# Ce qui ne doit jamais entrer dans l'image : dépendances et build de la machine locale
+# (reconstruits dans l'image), secrets, et métadonnées de développement.
+node_modules
+dist
+dist-ssr
+.env
+.env.*
+!.env.example
+*.local
+*.log
+.git
+.gitignore
+.vscode
+.idea
+Dockerfile
+.dockerignore

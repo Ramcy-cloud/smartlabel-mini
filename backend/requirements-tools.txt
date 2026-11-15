@@ -1,2 +1,2 @@
 -r requirements.txt
-scikit-learn
+scikit-learn>=1.9

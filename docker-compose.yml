@@ -1,6 +1,6 @@
 services:
   backend:
-    build: 
+    build:
       context: ./backend
     ports:
       - "8000:8000"
@@ -9,6 +9,10 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5175,http://localhost:5173}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+      # Durée de validité d'une session, en heures (entre 1 et 168)
+      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-12}
+      # Documentation interactive de l'API : publique par nature, donc fermée par défaut
+      - ENABLE_DOCS=${ENABLE_DOCS:-}
       # Identifiants de connexion : à définir dans un fichier .env à la racine (jamais dans ce fichier)
       - APP_EMAIL=${APP_EMAIL:-}
       - APP_PASSWORD=${APP_PASSWORD:-}
@@ -16,18 +20,25 @@ services:
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
       - MISTRAL_MODEL=${MISTRAL_MODEL:-mistral-small-latest}
     volumes:
-      # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage
-      - huggingface_cache:/root/.cache/huggingface
+      # Permet au modèle IA d'être mis en cache localement pour ne pas être retéléchargé à chaque démarrage.
+      # Le conteneur tourne sous un compte sans privilège : le cache est dans son dossier personnel.
+      - huggingface_cache:/home/app/.cache/huggingface
       # Données de l'application, visibles sur votre machine dans backend/data :
       # jeux de catégories enregistrés (label_sets.json) et modèles entraînés (models/*.json)
       - ./backend/data:/app/data
 
   frontend:
-    build: 
+    build:
       context: ./frontend
+      args:
+        # Adresse du backend figée dans les fichiers construits (Vite)
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://127.0.0.1:8000/api}
     ports:
-      # On mappe le port 5175 de ta machine vers le 5173 du conteneur
-      - "5175:5173"
+      # On mappe le port 5175 de la machine vers le 8080 du conteneur (nginx sans privilège)
+      - "5175:8080"
+    environment:
+      # Origine du backend autorisée par la politique de sécurité du contenu servie par nginx
+      - API_ORIGIN=${API_ORIGIN:-http://127.0.0.1:8000}
     depends_on:
       - backend
 

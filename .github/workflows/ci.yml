@@ -21,7 +21,7 @@ jobs:
     uses: Ramcy-cloud/ci-templates/.github/workflows/python-ci.yml@v1
     with:
       working-directory: backend
-      python-version: "3.10" # identique à l'image Docker (python:3.10-slim)
+      python-version: "3.12" # identique à l'image Docker (python:3.12-slim)
       # requirements-dev.txt inclut requirements.txt + pytest/httpx.
       # Les tests remplacent le modèle IA par un faux (tests/conftest.py) : aucun téléchargement.
       # torch en version CPU (pas de paquets CUDA de plusieurs Go) : suffisant pour la CI.

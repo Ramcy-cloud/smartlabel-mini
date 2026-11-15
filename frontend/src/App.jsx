@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Layout, Modal, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
-import { clearToken, deleteLabelSet, getEngines, getLabelSets, getToken, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
+import { deleteLabelSet, getEngines, getLabelSets, getToken, logout, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
 import { downloadCsv, toCsv } from './csv';
 import EnginePicker from './components/EnginePicker';
 import LabelSetPanel from './components/LabelSetPanel';
@@ -65,8 +65,9 @@ function App() {
     setRows([]);
   }, []);
 
-  const handleLogout = useCallback(() => {
-    clearToken();
+  // La déconnexion ferme aussi la session côté serveur : le jeton ne vaut plus rien ensuite
+  const handleLogout = useCallback(async () => {
+    await logout();
     resetWorkspace();
     setIsAuthenticated(false);
   }, [resetWorkspace]);

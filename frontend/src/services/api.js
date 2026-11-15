@@ -1,8 +1,12 @@
 import axios from 'axios';
 
-// On crée une instance Axios pré-configurée pour pointer vers ton backend FastAPI
+// Adresse du backend : fixée à la construction par VITE_API_BASE_URL (voir .env.example),
+// sinon le backend local. Une image construite sans cette variable ne sert donc que pour un essai local.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+
+// On crée une instance Axios pré-configurée pour pointer vers le backend FastAPI
 const apiClient = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -21,6 +25,15 @@ export const getToken = () => store()?.getItem(TOKEN_KEY) ?? null;
 const setToken = (token) => store()?.setItem(TOKEN_KEY, token);
 export const clearToken = () => store()?.removeItem(TOKEN_KEY);
 
+// Délai de la déconnexion : court, car elle ne doit jamais retenir l'utilisateur sur un écran
+// connecté. Les autres appels n'ont pas de délai : un lot de tickets peut légitimement prendre
+// plusieurs dizaines de secondes sur processeur, et l'interrompre annulerait l'analyse.
+const LOGOUT_TIMEOUT_MS = 5000;
+
+// Marqueur posé sur la requête de déconnexion : un 401 y est normal si la session a déjà expiré,
+// et ne doit pas faire afficher « Session expirée » pour une action volontaire.
+const EXPECTED_401 = 'smartlabelExpected401';
+
 let unauthorizedHandler = null;
 // Appelé quand le serveur refuse le jeton (session expirée, backend redémarré)
 export const onUnauthorized = (callback) => {
@@ -37,7 +50,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     // Un 401 sans jeton (mauvais mot de passe à la connexion) n'est pas une session expirée
-    if (error.response?.status === 401 && getToken()) {
+    if (error.response?.status === 401 && getToken() && !error.config?.[EXPECTED_401]) {
       clearToken();
       unauthorizedHandler?.();
     }
@@ -50,16 +63,17 @@ export const login = async (email, password) => {
   setToken(data.token);
 };
 
-export const predictLabel = async (text, candidateLabels) => {
+// Ferme la session côté serveur : le jeton devient inutilisable même s'il a été intercepté.
+// Le jeton local est effacé dans tous les cas, y compris si le backend ne répond pas.
+export const logout = async () => {
   try {
-    const response = await apiClient.post('/predict', {
-      text: text,
-      candidate_labels: candidateLabels,
-    });
-    return response.data;
-  } catch (error) {
-    console.error("Erreur lors de la prédiction :", error);
-    throw error;
+    if (getToken()) {
+      await apiClient.post('/logout', null, { timeout: LOGOUT_TIMEOUT_MS, [EXPECTED_401]: true });
+    }
+  } catch {
+    // La session sera de toute façon refusée ou expirera : rien à signaler à l'utilisateur
+  } finally {
+    clearToken();
   }
 };
 

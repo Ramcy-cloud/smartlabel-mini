@@ -1,2 +1,2 @@
 -r requirements-tools.txt
-pytest
+pytest>=9.1
