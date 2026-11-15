@@ -16,6 +16,11 @@ server {
     # text/html n'y figure pas : nginx le compresse toujours, le mentionner déclenche un avertissement.
     gzip_types       text/css text/javascript application/javascript image/svg+xml application/json;
     gzip_min_length  1024;
+    # Vary: Accept-Encoding sur les réponses compressées. Sans cet en-tête, un cache partagé
+    # (proxy d'entreprise, CDN) peut garder le bundle compressé et le resservir à un client qui
+    # n'a pas annoncé accepter gzip : ce client ne sait pas lire le JavaScript et n'affiche
+    # qu'une page blanche — pour toute la durée du cache, soit un an sur /assets/.
+    gzip_vary        on;
 
     # En-têtes de sécurité de la page et de ses scripts. Le backend pose les siens sur /api,
     # mais c'est nginx qui sert le HTML et le JavaScript : sans ces en-têtes, la page n'est pas protégée.
