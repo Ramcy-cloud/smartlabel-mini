@@ -64,17 +64,22 @@ export const login = async (email, password) => {
 };
 
 // Ferme la session côté serveur : le jeton devient inutilisable même s'il a été intercepté.
-// Le jeton local est effacé dans tous les cas, y compris si le backend ne répond pas.
-export const logout = async () => {
-  try {
-    if (getToken()) {
-      await apiClient.post('/logout', null, { timeout: LOGOUT_TIMEOUT_MS, [EXPECTED_401]: true });
-    }
-  } catch {
+// Le jeton local est effacé immédiatement, avant l'appel réseau et sans l'attendre : aucune requête
+// ne peut plus partir avec lui, et l'interface n'a pas à patienter pour quitter l'écran connecté.
+// La révocation part quand même, avec le jeton capturé et posé à la main puisqu'il n'est plus en
+// mémoire pour l'intercepteur.
+export const logout = () => {
+  const token = getToken();
+  clearToken();
+  if (!token) return Promise.resolve();
+  return apiClient
+    .post('/logout', null, {
+      timeout: LOGOUT_TIMEOUT_MS,
+      [EXPECTED_401]: true,
+      headers: { Authorization: `Bearer ${token}` },
+    })
     // La session sera de toute façon refusée ou expirera : rien à signaler à l'utilisateur
-  } finally {
-    clearToken();
-  }
+    .catch(() => {});
 };
 
 // Propose une catégorie (et une priorité) pour une liste de tickets

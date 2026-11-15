@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Layout, Modal, Progress, Row, Slider, Space, Statistic, Switch, Typography, message } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { deleteLabelSet, getEngines, getLabelSets, getToken, logout, onUnauthorized, saveLabelSet, triageTickets } from './services/api';
@@ -51,7 +51,13 @@ function App() {
     setDescriptions(loaded[name]?.descriptions ?? {});
   }, []);
 
+  // Génération de l'analyse en cours : « resetWorkspace » l'incrémente, et la boucle de handleRun
+  // s'arrête dès qu'elle ne reconnaît plus la sienne. Sans cela, l'analyse continuait après une
+  // déconnexion et réaffichait les lignes de la session précédente à la reconnexion.
+  const runGeneration = useRef(0);
+
   const resetWorkspace = useCallback(() => {
+    runGeneration.current += 1;
     setSets({});
     setCurrentSet(undefined);
     setCategories([]);
@@ -63,13 +69,19 @@ function App() {
     setEngine('zero-shot');
     setTickets([]);
     setRows([]);
+    setRunning(false);
+    setProgress(0);
+    setRunLabels({ categories: [], priorities: [] });
   }, []);
 
-  // La déconnexion ferme aussi la session côté serveur : le jeton ne vaut plus rien ensuite
-  const handleLogout = useCallback(async () => {
-    await logout();
+  // La déconnexion ferme aussi la session côté serveur : le jeton ne vaut plus rien ensuite.
+  // L'écran de connexion revient tout de suite et la révocation part en arrière-plan : le jeton
+  // local est déjà effacé, donc attendre le réseau ne protégerait rien et retiendrait l'utilisateur
+  // sur un écran connecté jusqu'à cinq secondes si le backend ne répond pas.
+  const handleLogout = useCallback(() => {
     resetWorkspace();
     setIsAuthenticated(false);
+    logout();
   }, [resetWorkspace]);
 
   // Session refusée par le serveur : retour à l'écran de connexion
@@ -176,11 +188,14 @@ function App() {
     setProgress(0);
     setRows([]);
     setRunLabels({ categories: usedCategories, priorities: usedPriorities });
+    const generation = runGeneration.current;
     const done = [];
     try {
       for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
         const batch = tickets.slice(i, i + BATCH_SIZE);
         const results = await triageTickets(batch, { categories: usedCategories, priorities: usedPriorities, ...rules });
+        // Déconnexion pendant l'analyse : on s'arrête sans rien écrire ni annoncer
+        if (runGeneration.current !== generation) return;
         results.forEach((r, j) =>
           done.push({
             ...r,
@@ -195,14 +210,17 @@ function App() {
       }
       message.success(`${done.length} tickets analysés.`);
     } catch (error) {
+      if (runGeneration.current !== generation) return;
       const status = error?.response?.status;
       message.error(
         status === 429
           ? 'Trop de requêtes : patientez une minute puis relancez.'
-          : apiError(error, `Analyse interrompue après ${done.length} tickets. Vérifiez que le backend tourne.`),
+          : status === 503
+            ? "Le serveur traite déjà le maximum d'analyses : patientez un instant puis relancez."
+            : apiError(error, `Analyse interrompue après ${done.length} tickets. Vérifiez que le backend tourne.`),
       );
     } finally {
-      setRunning(false);
+      if (runGeneration.current === generation) setRunning(false);
     }
   };
 
