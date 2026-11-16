@@ -185,7 +185,27 @@ C'est le mode actuel du projet : l'application tourne sur votre ordinateur, avec
 
 ### Lancement sans Docker
 
-Backend (Python 3.12 ou plus récent ; l'image Docker utilise Python 3.12. Python 3.10 et 3.11 ne reçoivent plus tous les correctifs de sécurité ou arrivent en fin de vie) :
+#### Un environnement Python dédié au projet
+
+Les dépendances du backend sont lourdes et versionnées de près (PyTorch, Transformers). Installez-les dans un environnement propre au projet, jamais dans votre Python général : sinon une montée de version faite ici déborde sur vos autres projets, et une de leurs contraintes peut empêcher d'installer celles d'ici.
+
+Prenez **Python 3.12**, la version de l'image Docker : l'environnement local reproduit alors ce qui tourne en production. Avec conda :
+
+```bash
+conda create -n smartlabel-mini python=3.12
+conda activate smartlabel-mini
+```
+
+Sans conda, `venv` fait le même travail :
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows : .venv\Scripts\activate
+```
+
+L'environnement est à activer à chaque nouvelle session de terminal, et à désigner comme interpréteur du projet dans votre éditeur. Les commandes qui suivent le supposent actif.
+
+#### Backend
 
 ```bash
 cd backend
@@ -193,7 +213,9 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Frontend (Node.js et npm) :
+#### Frontend
+
+Node.js et npm, sans rapport avec l'environnement Python ci-dessus :
 
 ```bash
 cd frontend
@@ -315,6 +337,8 @@ Par sécurité, le navigateur n'autorise une page web à interroger l'API que si
 - Seules les méthodes `GET`, `POST`, `PUT`, `DELETE` et les en-têtes `Content-Type` et `Authorization` sont autorisés. Il n'y a pas de cookies, donc pas de credentials CORS.
 
 ### Tests du backend
+
+Dans l'environnement dédié au projet (voir [Un environnement Python dédié au projet](#un-environnement-python-dédié-au-projet)) :
 
 ```bash
 cd backend
