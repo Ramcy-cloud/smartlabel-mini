@@ -129,7 +129,15 @@ def _remember(key: tuple, value: dict | None) -> dict | None:
 
 
 def _load_one(path: Path) -> dict | None:
-    stat = path.stat()
+    try:
+        stat = path.stat()
+    except OSError as error:
+        # Le fichier a disparu ou devient illisible entre le parcours du dossier et sa lecture :
+        # c'est le cas d'un « python -m tools.train » lancé pendant que le serveur tourne. Sans
+        # clé de cache il n'y a rien à mémoriser, mais un modèle manquant reste un avertissement,
+        # jamais une erreur 500 sur /api/triage et /api/engines.
+        log.warning("Modèle entraîné ignoré (%s) : %s", path.name, error)
+        return None
     key = (str(path), stat.st_mtime_ns, stat.st_size)
     with _cache_lock:
         if key in _cache:

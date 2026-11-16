@@ -1,0 +1,26 @@
+#!/bin/sh
+# Origine du backend autorisée par la politique de sécurité du contenu (voir nginx.conf.template).
+#
+# Elle est déduite de VITE_API_BASE_URL, figée dans les fichiers construits : les deux valeurs
+# décrivaient la même adresse mais devaient être tenues à jour séparément, l'une à la construction
+# et l'autre à l'exécution. Un déploiement qui ne réglait que VITE_API_BASE_URL — le seul des deux
+# que docker-compose.yml transmet à la construction — servait une politique autorisant encore
+# 127.0.0.1 : le navigateur bloquait alors tous les appels à l'API, sans rien afficher dans
+# l'interface, l'erreur n'apparaissant que dans la console.
+#
+# Ce fichier est sourcé (suffixe .envsh) par l'entrypoint de l'image nginx avant
+# 20-envsubst-on-templates.sh, qui remplace ${API_ORIGIN} dans le modèle.
+
+built="$(cat /etc/nginx/api-origin.built 2>/dev/null || true)"
+
+if [ -z "${API_ORIGIN:-}" ]; then
+    API_ORIGIN="$built"
+elif [ -n "$built" ] && [ "$API_ORIGIN" != "$built" ]; then
+    echo "API_ORIGIN ($API_ORIGIN) contredit l'adresse de l'API figée à la construction ($built)." >&2
+    echo "La politique de sécurité du contenu bloquerait tous les appels à l'API." >&2
+    echo "Corrigez API_ORIGIN, ou laissez-la vide pour qu'elle soit déduite de VITE_API_BASE_URL." >&2
+    exit 1
+fi
+
+export API_ORIGIN
+echo "Origine de l'API autorisée par la politique de sécurité du contenu : $API_ORIGIN"

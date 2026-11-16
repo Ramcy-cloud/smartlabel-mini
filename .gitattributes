@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts exécutés dans un conteneur Linux : fins de ligne LF imposées, quel que soit le système
+# où le dépôt est cloné. Un « \r » en fin de ligne fait échouer /bin/sh sur une erreur illisible,
+# et l'entrypoint de l'image nginx se contenterait d'ignorer le script.
+*.sh    text eol=lf
+*.envsh text eol=lf

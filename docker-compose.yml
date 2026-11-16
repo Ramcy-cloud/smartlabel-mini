@@ -37,8 +37,11 @@ services:
       # On mappe le port 5175 de la machine vers le 8080 du conteneur (nginx sans privilège)
       - "5175:8080"
     environment:
-      # Origine du backend autorisée par la politique de sécurité du contenu servie par nginx
-      - API_ORIGIN=${API_ORIGIN:-http://127.0.0.1:8000}
+      # Origine du backend autorisée par la politique de sécurité du contenu servie par nginx.
+      # Vide par défaut : elle est alors déduite de VITE_API_BASE_URL ci-dessus. Ne la renseignez
+      # que pour un cas particulier — si elle contredit l'adresse construite, le conteneur
+      # refuse de démarrer plutôt que de servir une politique qui bloque tous les appels.
+      - API_ORIGIN=${API_ORIGIN:-}
     depends_on:
       - backend
 

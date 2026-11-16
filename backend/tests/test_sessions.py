@@ -78,8 +78,27 @@ def test_the_number_of_sessions_is_capped(client):
     for _ in range(auth.MAX_SESSIONS):
         connect(client)
     assert len(auth._sessions) <= auth.MAX_SESSIONS
-    # La session la plus ancienne a été oubliée pour laisser la place
+    # La session la moins récemment utilisée a été oubliée pour laisser la place
     assert client.get("/api/label-sets", headers=bearer(first)).status_code == 401
+
+
+def test_a_session_still_in_use_survives_the_cap(client):
+    """Au plafond, c'est la session la moins récemment utilisée qui part, pas la plus anciennement
+    émise. Toutes les sessions ayant la même durée, évincer la plus proche de l'expiration revenait
+    à couper l'utilisateur connecté depuis le matin au profit d'un onglet ouvert à l'instant et
+    jamais utilisé — en pleine analyse, son travail était perdu."""
+    veteran = connect(client)
+    idle = connect(client)
+    for _ in range(auth.MAX_SESSIONS - 2):
+        connect(client)
+
+    # Le vétéran se sert de sa session : elle redevient la plus récemment utilisée
+    assert client.get("/api/label-sets", headers=bearer(veteran)).status_code == 200
+
+    # Une connexion de plus : il faut faire de la place
+    connect(client)
+    assert client.get("/api/label-sets", headers=bearer(veteran)).status_code == 200
+    assert client.get("/api/label-sets", headers=bearer(idle)).status_code == 401
 
 
 def test_a_token_does_not_survive_a_restart(client):
