@@ -1,3 +1,6 @@
+# syntax=docker/dockerfile:1
+# La directive ci-dessus fixe le frontend BuildKit, celui qui comprend « COPY --chmod ».
+
 # ---------------------------------------------------------------- construction
 FROM node:20-alpine AS build
 
@@ -32,11 +35,12 @@ COPY --from=build /app/api-origin /etc/nginx/api-origin.built
 
 # Suffixe .envsh et non .sh : l'entrypoint de l'image nginx source ces fichiers au lieu de les
 # exécuter, donc l'export est visible par 20-envsubst-on-templates.sh qui traite le modèle ensuite.
-# Le chmod est explicite : cet entrypoint ignore un .envsh non exécutable avec une simple ligne de
-# journal, ce qui redonnerait silencieusement une politique de sécurité incohérente. Le droit
-# d'exécution ne peut donc pas dépendre de ce que le système de fichiers d'origine a su conserver.
-COPY docker-entrypoint.d/15-api-origin.envsh /docker-entrypoint.d/15-api-origin.envsh
-RUN chmod 0755 /docker-entrypoint.d/15-api-origin.envsh
+# Le droit d'exécution est posé par COPY et non par un RUN chmod : cette image tourne sous un
+# utilisateur sans privilège, qui ne peut pas changer les droits d'un fichier appartenant à root.
+# Il est posé explicitement parce que l'entrypoint ignore un .envsh non exécutable avec une simple
+# ligne de journal : la politique de sécurité du contenu redeviendrait alors incohérente en
+# silence, et ce droit ne peut pas dépendre de ce que le clone a su conserver.
+COPY --chmod=0755 docker-entrypoint.d/15-api-origin.envsh /docker-entrypoint.d/15-api-origin.envsh
 
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
